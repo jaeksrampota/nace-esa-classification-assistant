@@ -22,8 +22,7 @@ shortlists — NACE and ESA, every candidate with its CTS ID — come out, and t
 off or declines, when a rule decided it (a GLEIF category or a keyword); a person confirms. It runs on
 Vercel (the production domain public since 24 Sept 2026, gated by the app's own login; the real codebooks in the
 private Blob store, `DE0005140008` end
-to end in about 12 s with the model; `main` at `1ec4e7b` is deployed since the evening of 24 Sept 2026, with
-the central database, and the app's own login is on since that morning). It is not gold-plated, and
+to end in about 12 s with the model; `main` at `5a9ecac` is deployed since 29 Sept 2026 (the central database since the evening of 24 Sept), and the app's own login is on since that morning). It is not gold-plated, and
 should not be: what follows is the short list that separates "works for Jakub" from "MO uses it", then what is
 optional.
 
@@ -87,7 +86,7 @@ optional.
    ÖMV AB, OMV - S.P.A.) - correctly refused - but "OMV AG" did too: long and short legal forms now count
    as one (AG = Aktiengesellschaft, AB = Aktiebolag, …), and since GLEIF's search needs every word a
    typed legal form also searches without it. Live: OMV AG, Kommuninvest i Sverige AB, Shell plc,
-   Nokia Oyj, Heineken N.V. all resolve. Not yet deployed.
+   Nokia Oyj, Heineken N.V. all resolve. Deployed 29 Sept 2026 (`main` `5a9ecac`).
 3d. **ECB lists of financial institutions (29 Sept 2026).** The GLEIF LEI is looked up in the ECB's MFI,
    IF, FVC, IC and PF lists (free, EU-wide, 70-88% of rows with a LEI), loaded into Neon's
    `ecb_institutions` (69,034 LEIs, `python -m core.sources.ecb --refresh`, ~30 s). Membership settles the
@@ -96,7 +95,7 @@ optional.
    captive vehicles are not (correct). Open: MO to confirm the category -> family table (MFI "Other
    Institution", EIB as credit institution, Allianz typed "Reinsurance"); a refresh schedule (GitHub
    Action with DATABASE_URL as a secret, or by hand monthly); whether `source` should say ECB.
-   Loaded into Neon 29 Sept; code not yet deployed.
+   Loaded into Neon 29 Sept; code deployed the same day (`main` `5a9ecac`).
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same
@@ -557,6 +556,10 @@ codebooks from Blob, `wikimedia_enabled: true`, `database: postgres …` (Neon, 
 verified there: a signed-in lookup writing to the database (the deploying session holds no password).
 Later that evening `ADMIN_PASSWORD_HASH` was added (Sensitive, Production only) and `main` redeployed, so
 the developer page is on behind the MO sign-in, with its own password.
+**Redeployed on 29 Sept 2026**, `main` `5a9ecac` (name-only lookups via GLEIF, the ECB lists), same way;
+no new env vars (`GLEIF_NAME_MATCH`, `ECB_ENABLED` default on). Verified by curl: `/api/version` at `5a9ecac`,
+`/health` 200 with `database: postgres …` and `reports: db` (deployment `dpl_FfrnXsNGtVLq5unYb25BNrfvHqfx`).
+Not yet verified: a signed-in name-only lookup.
 **Depends on:** no epic (E0.2 was dropped, D2); D1 confirmed. Before real data: the four codebook files from the
 repository owner (perhaps in `tdzian39/rb_files`, where Jakub has a pending invite), uploaded with
 `vercel blob put` as in `app/README.md`.
