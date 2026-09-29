@@ -128,10 +128,9 @@ class EcbEntry:
 
 def absence_fact(as_of: str) -> str:
     """The fact sheet line for a LEI on none of the lists."""
-    return (
-        f"ECB: LEI není v žádném seznamu finančních institucí ECB ke dni {as_of} "
-        "(MFI, investiční fondy, sekuritizační jednotky, pojišťovny, penzijní fondy)."
-    )
+    # No family words at all: "penzijní fondy" fired a keyword and "finančních institucí"
+    # scored every financial family - Adidas was offered pension funds (29 Sept 2026).
+    return f"ECB: LEI se ke dni {as_of} nevyskytuje v žádném statistickém seznamu ECB [ECB_NONE]."
 
 
 class EcbRegister:

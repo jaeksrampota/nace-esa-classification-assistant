@@ -169,8 +169,8 @@ class TestIdentity:
 
     def test_an_unlisted_lei_is_stated_as_absent(self, tmp_path: Path) -> None:
         sheet = identify(VW_LEI, register(tmp_path)).fact_sheet()
-        assert "LEI není v žádném seznamu finančních institucí ECB" in sheet
-        assert register_esa_families(sheet) == {}
+        assert "nevyskytuje v žádném statistickém seznamu ECB [ECB_NONE]" in sheet
+        assert list(register_esa_families(sheet)) == ["nefinancni podniky"]
 
     def test_an_empty_table_states_nothing(self, tmp_path: Path) -> None:
         sheet = identify(VW_LEI, EcbRegister(database(tmp_path))).fact_sheet()
@@ -184,3 +184,28 @@ class TestIdentity:
     @pytest.mark.parametrize("ecb", [None])
     def test_without_a_register_nothing_changes(self, ecb: None) -> None:
         assert "ECB" not in identify(DB_LEI, ecb).fact_sheet()
+
+
+def test_the_absence_line_triggers_no_keyword() -> None:
+    """Adidas got 'Penzijní fondy' because this line once listed the lists by name."""
+    from core.classify.hints import matching_hints
+    from core.sources.ecb import absence_fact
+
+    assert not matching_hints(absence_fact("2026-07"))
+
+
+class TestNonFinancialRule:
+    def test_on_no_list_and_no_financial_word_settles_non_financial(self) -> None:
+        sheet = (
+            "Adidas vyrábí sportovní obuv. Kategorie subjektu podle GLEIF: běžná právnická osoba "
+            "[GENERAL]. ECB: LEI se ke dni 2026-07 nevyskytuje v žádném statistickém seznamu ECB "
+            "[ECB_NONE]."
+        )
+        assert list(register_esa_families(sheet)) == ["nefinancni podniky"]
+
+    def test_a_financial_keyword_keeps_it_open(self) -> None:
+        sheet = "Toyota Motor Credit Corporation [GENERAL] [ECB_NONE]."
+        assert register_esa_families(sheet) == {}
+
+    def test_a_government_keeps_it_open(self) -> None:
+        assert register_esa_families("Land Berlin [RESIDENT_GOVERNMENT_ENTITY] [ECB_NONE]") == {}

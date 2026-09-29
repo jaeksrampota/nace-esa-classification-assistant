@@ -55,6 +55,7 @@ class Proposal:
         top: The proposed code - a model :class:`Suggestion` or a pre-filter :class:`Candidate`.
         alternatives: The model's runners-up, or the rest of the shortlist.
         tied: Codes on the shortlist with exactly the proposal's score (rules only).
+        overridden: The model's code, when a register settled a different single code.
     """
 
     kind: Kind
@@ -62,6 +63,7 @@ class Proposal:
     top: Suggestion | Candidate
     alternatives: tuple[Suggestion | Candidate, ...] = ()
     tied: tuple[str, ...] = ()
+    overridden: str | None = None
 
     @property
     def code(self) -> str:
@@ -85,6 +87,12 @@ class Proposal:
         """The model's sentence, or the rules that put the code first."""
         if isinstance(self.top, Suggestion):
             return self.top.justification
+        if self.overridden:
+            return (
+                f"Registr má přednost před modelem (model navrhl {self.overridden}): "
+                + "; ".join(self.top.reasons)
+                + "."
+            )
         return "Podle pravidel, bez modelu: " + "; ".join(self.top.reasons) + "."
 
     @property
@@ -105,6 +113,24 @@ def propose(classification: Classification, candidates: CandidateSet) -> Proposa
     Returns ``None`` when neither holds - no model answer and nothing but text similarity
     behind the ranking - which the page shows as "the choice is yours".
     """
+    settled = [
+        c for c in candidates.candidates if c.reasons and c.reasons[0].startswith("register:")
+    ]
+    if (
+        classification.top is not None
+        and len(settled) == 1
+        and classification.top.code != settled[0].code
+    ):
+        # One code settled by a register (GLEIF: international organisation -> 99; the EU)
+        # outranks the model, which read "Bank" in the EIB's name and answered 64. A family
+        # of control variants is never forced: which variant is the model's call.
+        return Proposal(
+            kind=candidates.kind,
+            basis="rules",
+            top=settled[0],
+            alternatives=(classification.top, *classification.alternatives),
+            overridden=classification.top.code,
+        )
     if classification.top is not None:
         return Proposal(
             kind=classification.kind,

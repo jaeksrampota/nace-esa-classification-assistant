@@ -228,3 +228,11 @@ def test_shortlist_both_returns_both_kinds(codebooks: CodebookSet) -> None:
 def test_limit_is_never_exceeded(codebooks: CodebookSet, limit: int) -> None:
     nace, esa = shortlist_both(codebooks, CAPTIVE_EN, limit=limit)
     assert len(nace) <= limit and len(esa) <= limit
+
+
+def test_a_weakly_matched_residual_family_is_still_offered() -> None:
+    """47 of 108 test lookups lost 'Nefinanční podniky' past the limit (29 Sept 2026)."""
+    codebooks = build_codebooks()
+    text = "Banka banky bankovní finanční instituce podnik bonds finance"
+    result = EsaCandidateFilter(codebooks).shortlist(text, limit=3)
+    assert any(c.code.startswith("20010") for c in result.candidates)

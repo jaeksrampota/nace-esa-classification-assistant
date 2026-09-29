@@ -227,9 +227,17 @@ class EsaCandidateFilter:
         # and those weak matches would consume every slot before the one sector the issuer
         # actually belongs to got a look. Measured on the golden set, that was the difference
         # between missing "Nefinanční podniky" and offering it first.
-        present = {family_key for _, _, family_key in ranked}
+        # "Would it fit?", not "was it matched at all?": a weak text match used to count as
+        # present, then fell past the limit - 47 of 108 test lookups lost the family so.
+        fitted: set[str] = set()
+        used = 0
+        for _, _, family_key in ranked:
+            size = len(self._families[family_key].codes)
+            if used + size <= limit:
+                fitted.add(family_key)
+            used += size
         missing = [
-            key for key in BASELINE_ESA_FAMILIES if key in self._families and key not in present
+            key for key in BASELINE_ESA_FAMILIES if key in self._families and key not in fitted
         ]
         reserved: list[str] = []
         for key in missing:
@@ -241,6 +249,8 @@ class EsaCandidateFilter:
         candidates: list[Candidate] = []
         budget = max(0, limit - len(reserved))
         for score, reasons, family_key in ranked:
+            if family_key in missing:
+                continue
             family = self._families[family_key]
             for code in family.codes:
                 if len(candidates) >= budget:

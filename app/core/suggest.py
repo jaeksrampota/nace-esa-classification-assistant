@@ -91,6 +91,7 @@ class IssuerSuggestion:
     created_at: datetime | None = None
     notes: tuple[str, ...] = field(default=())
     identity: IssuerIdentity = NO_IDENTITY
+    warnings: tuple[str, ...] = field(default=())
 
     @property
     def issuer_name(self) -> str | None:
@@ -141,7 +142,12 @@ class IssuerSuggestion:
     @property
     def all_notes(self) -> tuple[str, ...]:
         """Request notes, register notes, evidence notes and each abstention reason, deduplicated."""
-        collected: list[str] = [*self.notes, *self.identity.notes, *self.evidence.notes]
+        collected: list[str] = [
+            *self.warnings,
+            *self.notes,
+            *self.identity.notes,
+            *self.evidence.notes,
+        ]
         for classification in (self.nace, self.esa):
             if classification.abstained and classification.abstain_reason:
                 collected.append(f"{classification.kind}: {classification.abstain_reason}")
@@ -229,6 +235,7 @@ class SuggestionService:
             created_at=datetime.now(UTC),
             notes=notes,
             identity=identity,
+            warnings=_input_warnings(cleaned, identity),
         )
 
 
@@ -252,6 +259,37 @@ def build_service(
         classifier=build_classifier(resolved, codebook_version=codebooks.version.id),
         identifier=build_identifier(resolved),
         deadline_seconds=resolved.lookup_deadline_seconds,
+    )
+
+
+def _input_warnings(request: SuggestionRequest, identity: IssuerIdentity) -> tuple[str, ...]:
+    """A typed name that does not fit the ISIN's issuer: one of the two inputs is wrong."""
+    from core.sources.names import names_agree
+
+    record = identity.lei_record
+    resident = [
+        f"Emitent je podle {where} rezident ČR – nástroj je určen pro zahraniční emitenty a nabízí "
+        "jen nerezidentské kódy ESA. Kód pro rezidenta ověřte zvlášť."
+        for where, country in (
+            ("GLEIF", identity.country),
+            ("ISIN", (request.isin or "")[:2] if not identity.country else None),
+        )
+        if country == "CZ"
+    ][:1]
+    if not (request.isin and request.name and identity.legal_name):
+        return tuple(resident)
+    known = (
+        identity.legal_name,
+        *(record.other_names if record else ()),
+        identity.instrument.name if identity.instrument else None,
+    )
+    if names_agree(request.name, *known):
+        return tuple(resident)
+    return (
+        *resident,
+        f"Zadaný název „{request.name}“ neodpovídá emitentovi ISIN {request.isin} "
+        f"(podle registru „{identity.legal_name}“). Zkontrolujte ISIN i název – výsledek "
+        "vychází z ISIN.",
     )
 
 

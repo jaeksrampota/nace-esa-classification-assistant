@@ -24,6 +24,11 @@ LEXICAL_ONLY = _set(
     Candidate(NACE, "64", "512", "Finanční činnosti", score=0.13, reasons=("text match 0.13",)),
     Candidate(NACE, "25", "473", "Výroba kovových konstrukcí", score=0.07),
 )
+KEYWORDED = _set(
+    NACE,
+    Candidate(NACE, "84", "527", "Veřejná správa a obrana", score=10.03, reasons=("keyword: x",)),
+    Candidate(NACE, "64", "512", "Finanční činnosti", score=10.09, reasons=("keyword: banking",)),
+)
 ABSTAINED = Classification(kind=NACE, abstained=True, abstain_reason="no model configured")
 
 
@@ -36,7 +41,7 @@ class TestModelBasis:
             RULED.candidates[0], confidence="low", justification="Stát.", rank=2
         )
         answered = Classification(kind=NACE, suggestions=(pick, runner_up))
-        proposal = propose(answered, RULED)
+        proposal = propose(answered, KEYWORDED)
         assert proposal is not None
         assert (proposal.basis, proposal.code, proposal.cts_id) == ("model", "64", "512")
         assert proposal.confidence == "medium"
@@ -148,3 +153,46 @@ class TestTies:
         assert proposal is not None
         assert proposal.code == "64"
         assert proposal.tie_note is None
+
+
+class TestRegisterOutranksTheModel:
+    """The EIB: GLEIF says international organisation (99), the model read "Bank" (64)."""
+
+    def test_a_single_settled_code_replaces_a_different_model_pick(self) -> None:
+        pick = Suggestion.from_candidate(
+            RULED.candidates[1], confidence="high", justification="Banka."
+        )
+        proposal = propose(Classification(kind=NACE, suggestions=(pick,)), RULED)
+        assert proposal is not None
+        assert (proposal.basis, proposal.code, proposal.overridden) == ("rules", "84", "64")
+        assert proposal.alternatives == (pick,)
+        assert "model navrhl 64" in proposal.justification
+
+    def test_a_model_pick_that_agrees_stays_the_models(self) -> None:
+        pick = Suggestion.from_candidate(
+            RULED.candidates[0], confidence="high", justification="Stát."
+        )
+        proposal = propose(Classification(kind=NACE, suggestions=(pick,)), RULED)
+        assert proposal is not None and proposal.basis == "model"
+
+    def test_a_settled_family_of_variants_is_never_forced(self) -> None:
+        family = _set(
+            ESA,
+            Candidate(
+                ESA,
+                "2002213",
+                "1",
+                "Banky pod zahraniční kontrolou",
+                score=15,
+                reasons=("register: ecb",),
+            ),
+            Candidate(
+                ESA, "2002212", "2", "Banky soukromé národní", score=15, reasons=("register: ecb",)
+            ),
+            Candidate(
+                ESA, "2001002", "3", "Nefinanční podniky soukromé národní", score=0, reasons=()
+            ),
+        )
+        pick = Suggestion.from_candidate(family.candidates[2], confidence="low", justification="x")
+        proposal = propose(Classification(kind=ESA, suggestions=(pick,)), family)
+        assert proposal is not None and proposal.basis == "model"

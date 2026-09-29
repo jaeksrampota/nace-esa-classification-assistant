@@ -165,6 +165,8 @@ def identifier_over(
         settings,
         gleif=GleifSource(settings, client=gleif_client, **extra),
         openfigi=OpenFigiSource(settings, client=figi_client, **extra),
+        # The recording holds GLEIF and OpenFIGI only; a replay must not reach FIRDS.
+        firds=lambda isin: None,
     )
 
 

@@ -96,6 +96,21 @@ optional.
    Institution", EIB as credit institution, Allianz typed "Reinsurance"); a refresh schedule (GitHub
    Action with DATABASE_URL as a secret, or by hand monthly); whether `source` should say ECB.
    Loaded into Neon 29 Sept; code deployed the same day (`main` `5a9ecac`).
+3f. **Acceptance run, 29 Sept 2026 (108 lookups, model off, zero cost; 26 more with the model).** Found and
+   fixed: the residual family cut past the limit (ESA recall 47 -> 99/100, ESA top-3 35 -> 93); the ECB
+   absence line naming "penzijní fondy" (Adidas -> pension funds); "nadnárodní" (= multinational) firing the
+   supranational rule (Nestlé, Iberdrola, TotalEnergies); "holding" in a name making ASML and Ryanair
+   captives; "credit corporation" making Toyota Motor Credit a captive; no LEI for ISINs GLEIF does not map
+   (FIRDS fallback, item 4 below: 29 -> 17 lookups without a LEI); tied control variants pre-selected as
+   "pod zahraniční kontrolou". Also new: choosing any shortlisted code on the page, the six-column export,
+   and an ISIN/name mismatch warning. Open: the model declines ESA for most non-financial issuers when
+   ownership is unstated (Q7); GLEIF files the EU as a government (84, not 99); EBRD 64 vs 99; model-off
+   keyword misfires (Airbus 41, BASF 06, DHL 61).
+   A second run of 50 new cases then removed the "holding" hint altogether (Czech Wikipedia calls E.ON,
+   Renault, Ferrari, Carrefour, ČEZ a "holdingová společnost"), added market infrastructure (Deutsche Börse
+   -> S.126) and shipping keywords, a "rezident ČR" warning for Czech issuers, and "SOCIETA' PER AZIONI"
+   = S.p.A.: ESA top-3 38 -> 44/46, NACE top-1 36 -> 40/48. Left for the model: non-EU banks whose article
+   mentions insurance (UBS, HSBC -> insurer family), lexical noise in NACE (Philips, Microsoft -> 94).
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same
@@ -116,7 +131,7 @@ optional.
    reports land in `/tmp` and vanish. Reports are content: never in git, never in a log line; the audit log
    records only who reported which identifier. Review with `python -m core.reports --list|--xlsx` (the database
    when `DATABASE_URL` is set) or `/admin`. This is the first piece of D4 that MO can act on.
-4. **E5-lite: the FIRDS LEI fallback.** GLEIF maps 25 of 36 golden ISINs; the misses (Eurobond, LU/IE funds) include
+4. **E5-lite: the FIRDS LEI fallback. Built 29 Sept 2026 (`core/sources/firds.py`, see 3f).** GLEIF maps 25 of 36 golden ISINs; the misses (Eurobond, LU/IE funds) include
    all four captive vehicles, the core ESA trap. ESMA FIRDS returns the issuer LEI for them; `/probe` already
    shows the host reachable from Vercel.
 5. ~~**Have someone with CTS access check the 36 real golden cases**~~ **Dropped (Jakub, 23 Sept 2026):** nothing

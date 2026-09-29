@@ -318,3 +318,41 @@ class TestByName:
         ident, gleif, _ = identifier({"adidas": DB_RECORD}, **{switch: False})
         assert ident.identify(None, name="adidas") is NO_IDENTITY
         assert gleif.asked == []
+
+
+class TestFirdsFallback:
+    """GLEIF maps no ISIN: FIRDS names the LEI, GLEIF describes it."""
+
+    class Gleif(FakeGleif):
+        def fetch(self, lei: str) -> LeiRecord | None:
+            return DB_RECORD if lei == DB_LEI else None
+
+    def ident(self, firds, **overrides: object) -> IssuerIdentifier:
+        return IssuerIdentifier(
+            settings(**{"firds_enabled": True, "openfigi_enabled": False, **overrides}),
+            gleif=self.Gleif({}),  # type: ignore[arg-type]
+            firds=firds,
+        )
+
+    def test_the_lei_comes_from_firds(self) -> None:
+        identity = self.ident(lambda isin: DB_LEI).identify(DB_ISIN)
+        assert identity.lei == DB_LEI
+        assert identity.sources == ("GLEIF", "FIRDS")
+        assert any("doplněn z ESMA FIRDS" in note for note in identity.notes)
+
+    def test_firds_without_a_lei_is_a_note(self) -> None:
+        identity = self.ident(lambda isin: None).identify(DB_ISIN)
+        assert identity.lei is None
+        assert any("ani ESMA FIRDS" in note for note in identity.notes)
+
+    def test_a_firds_outage_is_not_a_miss(self) -> None:
+        def down(isin: str) -> str:
+            raise SourceUnavailableError("down")
+
+        identity = self.ident(down).identify(DB_ISIN)
+        assert any("FIRDS: zdroj se nepodařilo dotázat" in note for note in identity.notes)
+
+    def test_the_switch_turns_it_off(self) -> None:
+        asked: list[str] = []
+        self.ident(lambda isin: asked.append(isin), firds_enabled=False).identify(DB_ISIN)
+        assert asked == []

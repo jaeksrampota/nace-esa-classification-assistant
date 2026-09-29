@@ -253,7 +253,7 @@ HINTS: Final[tuple[Hint, ...]] = (
         # are registered as '<Group> Finance N.V.', '<Group> International Finance B.V.',
         # '<Group> Funding B.V.' or '<Group> Motor Credit Corporation' (GLEIF, 2026-09-22:
         # BMW Finance N.V., Volkswagen International Finance N.V., Deutsche Telekom
-        # International Finance B.V., Toyota Motor Credit Corporation - all category
+        # International Finance B.V. - all category
         # GENERAL, so the register does not say 'captive'; the name does). The phrase
         # includes the legal-form suffix on purpose: bare 'finance' fires on half of
         # section K, but 'Finance N.V.' is how a Dutch funding vehicle is spelled.
@@ -268,27 +268,61 @@ HINTS: Final[tuple[Hint, ...]] = (
             "funding corporation",
             "international finance",
             "finance corporation",
-            "credit corporation",
             "capital corporation",
             "treasury b.v.",
             # Dutch for "financing company": Siemens Financieringsmaatschappij N.V.
             "financieringsmaatschappij",
+            # Batch 3, 29 Sept 2026: Nestlé Finance International Ltd., Enel Finance
+            # International N.V., Toyota Motor Finance (Netherlands) B.V., BMW US Capital, LLC.
+            "finance international",
+            "motor finance",
+            "capital, llc",
+            "capital llc",
         ),
         nace=("64",),
         esa_families=("kaptivni financni instituce a pujcovatele penez",),
         note="finance-vehicle name",
     ),
-    Hint(
-        triggers=("holding", "holdingová"),
-        nace=("64", "70"),
-        esa_families=("kaptivni financni instituce a pujcovatele penez",),
-        note="holding company",
-    ),
+    # No "holding" hint: Czech Wikipedia calls E.ON, Renault, Ferrari, Carrefour and ČEZ a
+    # "holdingová společnost", and ASML/Ryanair carry it in their names - a keyword cannot
+    # tell a pure holding (S.127) from a group's head office (its group's sector). 29 Sept 2026.
     Hint(
         triggers=("broker", "dealer", "obchodník s cennými papíry", "securities trading"),
         nace=("66",),
         esa_families=("obchodnici s cennymi papiry a derivaty",),
         note="securities dealer",
+    ),
+    Hint(
+        # Market infrastructure is S.126 (financial auxiliaries); with no keyword Deutsche
+        # Börse fell through to "non-financial" (29 Sept 2026).
+        triggers=(
+            "stock exchange",
+            "securities exchange",
+            "exchange operator",
+            "clearing house",
+            "central counterparty",
+            "central securities depository",
+            "burza cenných papírů",
+            "burzovní",
+            "clearingov",
+        ),
+        nace=("66",),
+        esa_families=("pomocne financni instituce",),
+        note="market infrastructure",
+    ),
+    Hint(
+        triggers=(
+            "asset manager",
+            "asset management",
+            "investment management",
+            "fund manager",
+            "správa aktiv",
+            "správce aktiv",
+            "investiční společnost",
+        ),
+        nace=("66",),
+        esa_families=("pomocne financni instituce",),
+        note="asset manager",
     ),
     Hint(
         # The lender, dealer, securitisation and specialised-institution families have no
@@ -305,6 +339,10 @@ HINTS: Final[tuple[Hint, ...]] = (
             "faktoring",
             "hire purchase",
             "splátkový prodej",
+            # "Toyota Motor Credit Corporation" finances dealers' customers - the golden
+            # case expects the lending family; it used to sit with the captive names.
+            "credit corporation",
+            "motor credit",
         ),
         nace=("64",),
         esa_families=("financni instituce poskytujici uvery",),
@@ -353,7 +391,10 @@ HINTS: Final[tuple[Hint, ...]] = (
             "development bank",
             "rozvojová banka",
             "supranational",
-            "nadnárodní",
+            # Not bare "nadnárodní": Czech Wikipedia calls every multinational company a
+            # "nadnárodní koncern" (Nestlé, Iberdrola, TotalEnergies all hit it, 29 Sept 2026).
+            "nadnárodní organizace",
+            "nadnárodní instituce",
             "international organisation",
             "international organization",
             "mezinárodní organizace",
@@ -399,6 +440,11 @@ HINTS: Final[tuple[Hint, ...]] = (
     Hint(triggers=("wholesale", "velkoobchod"), nace=("46",), note="wholesale"),
     Hint(
         triggers=("airline", "letecká doprava", "air transport"), nace=("51",), note="air transport"
+    ),
+    Hint(
+        triggers=("shipping line", "container shipping", "námořní doprava", "lodní doprava"),
+        nace=("50", "52"),
+        note="shipping",
     ),
     Hint(triggers=("steel", "ocel", "metallurg", "hutnictv"), nace=("24",), note="metals"),
     Hint(triggers=("chemical", "chemick"), nace=("20",), note="chemicals"),
@@ -462,6 +508,7 @@ class RegisterRule:
 REGISTER_RULES: Final[tuple[RegisterRule, ...]] = (
     RegisterRule("INTERNATIONAL_ORGANIZATION", "99", "GLEIF: international organisation"),
     RegisterRule("RESIDENT_GOVERNMENT_ENTITY", "84", "GLEIF: government entity"),
+    RegisterRule("EU_BODY", "99", "the European Union by legal name"),
 )
 
 
@@ -485,13 +532,22 @@ ESA_REGISTER_RULES: Final[tuple[tuple[str, str, str], ...]] = (
     ("ECB_FVC", "ucelove financni instituce pro sekuritizaci aktiv", "ECB list of FVCs"),
     ("ECB_IC", "pojistovaci spolecnosti (ic)", "ECB list of insurance corporations"),
     ("ECB_PF", "penzijni fondy (pf)", "ECB list of pension funds"),
+    ("EU_BODY", "ostatni mezinarodni instituce", "the European Union by legal name"),
 )
 
 
 def register_esa_families(text: str) -> dict[str, str]:
-    """``{ESA family key: reason}`` settled by an ECB list membership in the fact sheet."""
-    return {
+    """``{ESA family key: reason}`` settled by an ECB list membership in the fact sheet.
+
+    On no ECB list, an ordinary GLEIF entity with no financial or public keyword is a
+    non-financial corporation: the lists hold every EU bank, fund, FVC, insurer and pension
+    fund, and a captive, lender or government still fires its own keyword first.
+    """
+    settled = {
         family: f"register: {note}"
         for code, family, note in ESA_REGISTER_RULES
         if f"[{code}]" in text
     }
+    if "[ECB_NONE]" in text and "[GENERAL]" in text and not hinted_esa_families(text):
+        settled["nefinancni podniky"] = "register: on no ECB list, no financial keyword"
+    return settled

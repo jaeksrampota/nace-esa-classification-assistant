@@ -427,3 +427,45 @@ def test_match_name_reports_how_many_tied() -> None:
     source = TestLegalFormsAgree().source()
     assert source.match_name("OMV") == (None, 3)
     assert source.match_name("Nobody at all") == (None, 0)
+
+
+class TestBrandsAndBranches:
+    """Batch 3, 29 Sept 2026: 'Allianz' took a Belgian entity named just ALLIANZ; the full
+    name of Deutsche Bank tied with its own French branch."""
+
+    @staticmethod
+    def item(lei: str, name: str, category: str = "GENERAL") -> dict[str, object]:
+        return _gleif_item(lei, name, country="DE", jurisdiction="DE", category=category)
+
+    def find(self, query: str, items: list[dict[str, object]]):
+        client = gleif_client(by_name={query: items})  # type: ignore[arg-type]
+        source = GleifSource(
+            settings(gleif_fetch_parents=False), client=client, sleep=lambda _: None
+        )
+        return source.match_name(query)
+
+    def test_a_bare_brand_ties_an_entity_named_just_so_with_the_group(self) -> None:
+        items = [self.item("B" * 20, "ALLIANZ"), self.item("S" * 20, "Allianz SE")]
+        assert self.find("Allianz", items) == (None, 2)
+
+    def test_a_branch_never_ties_its_head_office(self) -> None:
+        items = [
+            self.item("F" * 20, "Deutsche Bank Aktiengesellschaft", "BRANCH"),
+            self.item("7LTWFZYICNSX8D621K86", "DEUTSCHE BANK AKTIENGESELLSCHAFT"),
+        ]
+        record, _ = self.find("Deutsche Bank Aktiengesellschaft", items)
+        assert record is not None and record.lei == "7LTWFZYICNSX8D621K86"
+
+
+def test_the_european_union_is_marked_as_an_eu_body() -> None:
+    from dataclasses import replace
+
+    from core.classify.hints import register_esa_families, register_nace
+
+    record = deutsche_bank().find_by_isin(DB_ISIN)
+    assert record is not None
+    sheet = replace(record, legal_name="European Union").fact_sheet()
+    assert "[EU_BODY]" in sheet
+    assert register_nace(sheet) == {"99": "register: the European Union by legal name"}
+    assert list(register_esa_families(sheet)) == ["ostatni mezinarodni instituce"]
+    assert "[EU_BODY]" not in record.fact_sheet()

@@ -145,8 +145,8 @@ class TestListsAndWidths:
 
     def test_other_columns_are_measured_within_bounds(self, tmp_path: Path) -> None:
         """Header or longest value plus two, never below 10 nor above 40 characters."""
-        rows = [{"isin": ISIN, "a": 1, "description": "x" * 200}]
-        sheet = load_workbook(write(tmp_path, ("isin", "a", "description"), rows))[SUBJECTS_SHEET]
+        rows = [{"isin": ISIN, "a": 1, "long": "x" * 200}]
+        sheet = load_workbook(write(tmp_path, ("isin", "a", "long"), rows))[SUBJECTS_SHEET]
         assert sheet.column_dimensions["A"].width == len(ISIN) + 2
         assert sheet.column_dimensions["B"].width == 10
         assert sheet.column_dimensions["C"].width == 40

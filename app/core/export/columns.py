@@ -57,6 +57,17 @@ SUGGESTION_COLUMNS: Final[tuple[str, ...]] = (
     "notes",
 )
 
+#: The download's main sheet: the brief's outputs only (ROADMAP §2). Provenance, evidence
+#: and notes go to the Run sheet; the JSON ``row`` keeps every column.
+EXPORT_COLUMNS: Final[tuple[str, ...]] = (
+    "issuer_name",
+    "description",
+    "NACE_code",
+    "NACE_cts_id",
+    "ESA_code",
+    "ESA_cts_id",
+)
+
 #: Columns Excel must keep as text. A NACE division such as ``01``, or a CTS ID stored with
 #: leading zeros, loses them the moment Excel decides the cell is a number - and a code
 #: that MO copies into CTS must be exactly what the codebook says.
@@ -81,15 +92,20 @@ WRAPPED_COLUMNS: Final[frozenset[str]] = frozenset(
         "notes",
         "NACE_candidates",
         "ESA_candidates",
+        "description",
     }
 )
 
 #: Human-readable header shown in the sheet, when it differs from the column key.
 SUGGESTION_HEADER_LABELS: Final[Mapping[str, str]] = {
+    "issuer_name": "Emitent",
     "issuer_lei": "issuer_lei (GLEIF)",
     "issuer_country": "issuer_country (sídlo podle GLEIF)",
-    "NACE_cts_id": "NACE_cts_id (do CTS)",
-    "ESA_cts_id": "ESA_cts_id (do CTS)",
+    "description": "Popis činnosti",
+    "NACE_code": "NACE",
+    "NACE_cts_id": "NACE – CTS ID",
+    "ESA_code": "ESA",
+    "ESA_cts_id": "ESA – CTS ID",
     # Excel cannot store a timezone, so this is written as naive UTC; say so in the header.
     "retrieved_at": "retrieved_at (UTC)",
 }
@@ -198,10 +214,12 @@ def suggestion_row(suggestion: object) -> dict[str, object]:
         justification = " ".join(
             part for part in (proposal.justification, proposal.tie_note) if part
         )
+        # A rules tie (the control variants of one family) has no single code: the first
+        # of them is only the codebook's order, so the row leaves the choice to MO.
         row.update(
             {
-                f"{prefix}_code": proposal.code,
-                f"{prefix}_cts_id": proposal.cts_id,
+                f"{prefix}_code": None if proposal.tied else proposal.code,
+                f"{prefix}_cts_id": None if proposal.tied else proposal.cts_id,
                 f"{prefix}_label": proposal.label,
                 f"{prefix}_confidence": proposal.confidence,
                 f"{prefix}_justification": justification,

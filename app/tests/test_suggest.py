@@ -317,3 +317,10 @@ class TestDeadline:
 
     def test_the_default_deadline_leaves_vercel_ten_seconds(self) -> None:
         assert Settings(_env_file=None).lookup_deadline_seconds == 50.0
+
+
+def test_a_czech_issuer_is_warned_as_resident() -> None:
+    from core.suggest import _input_warnings
+
+    (warning,) = _input_warnings(SuggestionRequest(isin="CZ0005112300"), NO_IDENTITY)
+    assert "rezident ČR" in warning

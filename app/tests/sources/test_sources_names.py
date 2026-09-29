@@ -34,3 +34,27 @@ def test_no_legal_form_has_no_key() -> None:
 def test_strip_and_fold() -> None:
     assert strip_legal_form("adidas AG") == "adidas"
     assert fold("ÖMV AB") == "omvab"
+
+
+@pytest.mark.parametrize(
+    ("typed", "known", "agree"),
+    [
+        ("Deutsche Bank AG", "DEUTSCHE BANK AKTIENGESELLSCHAFT", True),
+        ("adidas", "adidas AG", True),
+        ("BMW", "Bayerische Motoren Werke Aktiengesellschaft", True),
+        ("Heineken", "Heineken N.V.", True),
+        ("Siemens", "DEUTSCHE BANK AKTIENGESELLSCHAFT", False),
+        ("Erste Bank", "DEUTSCHE BANK AKTIENGESELLSCHAFT", False),
+        ("Bank AG", "DEUTSCHE BANK AKTIENGESELLSCHAFT", True),
+    ],
+)
+def test_names_agree(typed: str, known: str, agree: bool) -> None:
+    from core.sources.names import names_agree
+
+    assert names_agree(typed, known) is agree
+
+
+def test_an_italian_legal_form_with_an_apostrophe() -> None:
+    assert legal_form_key("Cassa Depositi e Prestiti S.p.A.") == legal_form_key(
+        "CASSA DEPOSITI E PRESTITI SOCIETA' PER AZIONI"
+    )

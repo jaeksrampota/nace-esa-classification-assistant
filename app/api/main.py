@@ -46,7 +46,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Final
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Form, Query, Request
+from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -1006,22 +1006,42 @@ def suggest_xlsx(
     isin: Annotated[str, Query()] = "",
     name: Annotated[str, Query()] = "",
     description: Annotated[str, Query()] = "",
+    nace: Annotated[str, Query()] = "",
+    esa: Annotated[str, Query()] = "",
 ) -> StreamingResponse:
-    """Download the result as xlsx.
+    """Download the result as xlsx: the brief's six columns, provenance on the Run sheet.
 
     The lookup is re-run rather than held in a session: the classifier caches, so this costs
-    nothing, and a link stays valid for whoever opens it.
+    nothing, and a link stays valid for whoever opens it. ``nace`` / ``esa`` are the codes MO
+    chose on the page; each must be on the shortlist, so its CTS ID comes from the codebook.
     """
     import io
 
     from openpyxl import load_workbook
 
-    from core.export.columns import SUGGESTION_COLUMNS, suggestion_row
+    from core.export.columns import CODE_SEPARATOR, EXPORT_COLUMNS, suggestion_row
     from core.export.xlsx import write_workbook
 
     payload = SuggestionRequest(isin=isin, name=name, description=description)
     suggestion = _run(service, settings, payload, request) if not payload.is_empty else None
-    rows = [suggestion_row(suggestion)] if suggestion else []
+    row = suggestion_row(suggestion) if suggestion else None
+    chosen_by: dict[str, str] = {}
+    if suggestion and row:
+        for prefix, code, candidates in (
+            ("NACE", nace.strip(), suggestion.nace_candidates),
+            ("ESA", esa.strip(), suggestion.esa_candidates),
+        ):
+            if not code:
+                continue
+            candidate = candidates.by_code(code)
+            if candidate is None:
+                raise HTTPException(
+                    status_code=400, detail=f"{prefix} {code} není v zúženém číselníku"
+                )
+            if code != row[f"{prefix}_code"]:
+                chosen_by[prefix] = f"uživatel (návrh byl {row[f'{prefix}_code'] or 'žádný'})"
+            row[f"{prefix}_code"], row[f"{prefix}_cts_id"] = candidate.code, candidate.cts_id
+    rows = [row] if row else []
 
     import tempfile
     from pathlib import Path
@@ -1030,7 +1050,7 @@ def suggest_xlsx(
         path = Path(directory) / "navrh.xlsx"
         write_workbook(
             path,
-            SUGGESTION_COLUMNS,
+            EXPORT_COLUMNS,
             rows,
             run_metadata={
                 "nástroj": "ESA a NACE našeptávač",
@@ -1038,8 +1058,15 @@ def suggest_xlsx(
                     suggestion.created_at.replace(tzinfo=None) if suggestion else None
                 ),
                 "uživatel": request_user(request, settings),
+                "ISIN": row["IN_isin"] if row else None,
+                "LEI": row["issuer_lei"] if row else None,
+                "zdroj": row["source"] if row else None,
                 "verze číselníku": suggestion.codebook_version if suggestion else None,
                 "model": suggestion.nace.model if suggestion else None,
+                "NACE vybral": chosen_by.get("NACE", "návrh nástroje"),
+                "ESA vybral": chosen_by.get("ESA", "návrh nástroje"),
+                "podklady": CODE_SEPARATOR.join(row["evidence_urls"]) if row else None,
+                "poznámky": " | ".join(row["notes"]) if row else None,
             },
         )
         data = path.read_bytes()

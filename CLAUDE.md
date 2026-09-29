@@ -46,7 +46,8 @@ Never scrape `apl.czso.cz` or `or.justice.cz`.
 ```
 core/identifiers  ico.py (mod-11; batch reader only), isin.py
 core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), web.py, wikimedia.py,
-                  names.py (name matching), ecb.py (ECB lists of financial institutions)
+                  names.py (name matching), ecb.py (ECB lists of financial institutions),
+                  firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping)
 core/codebooks    loaders, versioning, consistency; blob.py (private Vercel Blob)
 core/classify     candidates.py (pre-filter), hints.py, llm.py, proposal.py, golden.py,
                   budget.py (limits, usage ledger), usage_report.py (the ledger as Excel)
@@ -178,6 +179,11 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
     (`GLEIF_FETCH_PARENTS=false` makes it 1) and 1 OpenFIGI.
   * GLEIF has no ISIN mapping for some funds (iShares Core MSCI World) that OpenFIGI names —
     hence both registers, in that order.
+  * **FIRDS fallback** (`firds.py`, `FIRDS_ENABLED`, 29 Sept 2026): when GLEIF maps no ISIN,
+    ESMA FIRDS (`registers.esma.europa.eu/solr/esma_registers_firds/select?q=isin:`) gives the
+    issuer LEI and GLEIF `fetch(lei)` the record; `FIRDS` joins `sources`. Fixed BMW Finance,
+    Shell International Finance, iShares, Bavarian Sky. `tests/conftest.py` sets
+    `FIRDS_ENABLED=false`; the golden replay passes `firds=lambda isin: None`.
   * `source` names the registers that answered, even when the answer was "nothing", then `WEB`.
     Egress needed: `api.gleif.org`, `api.openfigi.com` (443).
 - **Web evidence** (`web.py`): the scraping ban is **enforced** by `BLOCKED_HOSTS`/`is_blocked()`,
@@ -223,6 +229,12 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
   the filter omits is one the model can never return. Mechanisms: the reviewable keyword table
   (`hints.py`, cs+en) and IDF-weighted overlap (`text.py`), plus English division titles
   (`nace_en.py`, scored only — never shown, never in a prompt).
+- **A register outranks the model** (`proposal.propose`, 29 Sept 2026): when exactly one shortlisted
+  code carries a `register:` reason and the model picked another, the register's code is the
+  proposal (`basis="rules"`, `overridden` = the model's code, shown as the first alternative) - the
+  EIB was answered 64 from "Bank" in its name. A register *family* (control variants) is never
+  forced. The EU, which GLEIF files as a GENERAL Belgian public-law body, is marked by legal name
+  (`gleif.EU_BODIES` -> `[EU_BODY]` -> NACE 99, ESA `ostatni mezinarodni instituce`).
 - **Register rules outrank keywords** (`hints.REGISTER_RULES`): GLEIF
   `RESIDENT_GOVERNMENT_ENTITY` → NACE 84, `INTERNATIONAL_ORGANIZATION` → 99, matched on the
   bracketed code so only the register can fire them. "European Investment Bank" says bank; the
@@ -234,7 +246,11 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
   `build_families()` takes one residency block at a time. The filter offers all control variants
   of a family, because the two axes are settled by different evidence.
 - **The residual-sector rule**: `BASELINE_ESA_FAMILIES` reserves slots for "Nefinanční podniky"
-  **before** ranking. Appending afterwards is not enough — an industrial issuer whose description
+  **before** ranking, whenever the family would not *fit* in the limit (29 Sept 2026: it used to
+  check only "matched at all", so a weak match was ranked last and cut - 47 of 108 test lookups).
+  With `[ECB_NONE]` + `[GENERAL]` and no financial/public keyword, `register_esa_families`
+  settles it as a register rule. A rules proposal that ties control variants leaves the row's
+  code empty and the page's radio unchecked: the first variant is only the codebook's order. Appending afterwards is not enough — an industrial issuer whose description
   says only "bonds" and "finance" loses every slot to financial families. Measured: 20% of ESA
   recall. Do not turn it into a plain fallback.
 - **Navrhovaný kód** (`proposal.py`): the model's first pick; with no model answer, the
@@ -307,6 +323,12 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
   `row`. Neither builds its own — keep it that way. An abstention leaves the code columns empty
   and puts the reason in `notes`. `SUGGESTION_TEXT_COLUMNS` are written as Excel text so leading
   zeros survive; timestamps are UTC written naive, hence the `(UTC)` headers.
+  * **The download is the brief's six columns** (`EXPORT_COLUMNS`, 29 Sept 2026: Emitent, Popis
+    činnosti, NACE, NACE – CTS ID, ESA, ESA – CTS ID); source, time, codebook version, ISIN,
+    LEI, evidence and notes are on the Run sheet, so the hard rule still holds. The JSON `row`
+    keeps every column. On the page every shortlisted code has a "vybrat do exportu" radio
+    (proposal pre-selected, `form="download"`, no JS); `/suggest.xlsx?nace=&esa=` takes the
+    choice, refuses a code off the shortlist (400) and records "NACE/ESA vybral" on Run.
 - **Batch** (`batch/reader.py`): unused until E6. Two rules that look like edge cases but are the
   point: a malformed IČO is looked up **as given** rather than falling back to the name column (a
   wrong IČO must surface, not silently return another company), and with no recognised header,

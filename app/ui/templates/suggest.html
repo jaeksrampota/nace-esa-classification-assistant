@@ -412,7 +412,8 @@
   </form>
 
   {% if suggestion %}
-  {% macro panel(title, codebook, classification, candidates, proposal) %}
+  {% macro choose(field, code, checked=false) %}<label class="choose"><input type="radio" name="{{ field }}" value="{{ code }}" form="download"{% if checked %} checked{% endif %}> vybrat do exportu</label>{% endmacro %}
+  {% macro panel(title, codebook, classification, candidates, proposal, field) %}
     <div class="panel">
       <h3>{{ title }}</h3>
       <div class="codebook">{{ codebook }}</div>
@@ -433,6 +434,7 @@
           <div class="label">{{ proposal.label }}</div>
           {% if proposal.justification %}<div class="why">{{ proposal.justification }}</div>{% endif %}
           {% if proposal.tie_note %}<div class="why tie">{{ proposal.tie_note }}</div>{% endif %}
+          {{ choose(field, proposal.code, not proposal.tied) }}
         </div>
         {% if proposal.alternatives %}
         <p class="alts-title">{% if proposal.basis == 'model' %}další kandidáti{% else %}další kandidáti ze zúženého číselníku ({{ candidates|length }} z {{ candidates.considered }}){% endif %}</p>
@@ -450,9 +452,28 @@
           <div class="label">{{ alt.label }}</div>
           {% if proposal.basis == 'model' %}
             {% if alt.justification %}<div class="why">{{ alt.justification }}</div>{% endif %}
+          {% elif alt.justification %}<div class="why">{{ alt.justification }}</div>
           {% elif alt.reasons %}<div class="why">{{ alt.reasons|join('; ') }}</div>{% endif %}
+          {{ choose(field, alt.code) }}
         </div>
         {% endfor %}
+        {% endif %}
+        {% set shown = [proposal.code] + proposal.alternatives|map(attribute='code')|list %}
+        {% set rest = candidates|rejectattr('code', 'in', shown)|list %}
+        {% if rest %}
+        <details class="more">
+          <summary>ostatní kódy zúženého číselníku ({{ rest|length }})</summary>
+          {% for candidate in rest %}
+          <div class="alt">
+            <div class="code-row">
+              <span class="code">{{ candidate.code }}</span>
+              <span class="ctsid">CTS ID {{ candidate.cts_id }}</span>
+            </div>
+            <div class="label">{{ candidate.label }}</div>
+            {{ choose(field, candidate.code) }}
+          </div>
+          {% endfor %}
+        </details>
         {% endif %}
       {% else %}
         <div class="abstain">
@@ -469,6 +490,7 @@
           </div>
           <div class="label">{{ candidate.label }}</div>
           {% if candidate.reasons %}<div class="why">{{ candidate.reasons|join('; ') }}</div>{% endif %}
+          {{ choose(field, candidate.code) }}
         </div>
         {% endfor %}
         {% endif %}
@@ -477,6 +499,7 @@
   {% endmacro %}
 
   <section class="result" id="result">
+    {% for warning in suggestion.warnings %}<div class="notice error">{{ warning }}</div>{% endfor %}
     <div class="card issuer">
       <span class="kicker">Emitent</span>
       <h2>{{ suggestion.issuer_name or 'Emitent neurčen' }}</h2>
@@ -499,8 +522,8 @@
     </div>
 
     <div class="panels">
-      {{ panel('NACE', 'číselník CTS_OKEC_NACE2 · první 2 číslice', suggestion.nace, suggestion.nace_candidates, suggestion.nace_proposal) }}
-      {{ panel('ESA 2010', 'číselník BA0036 · jen elementární kódy · nerezident', suggestion.esa, suggestion.esa_candidates, suggestion.esa_proposal) }}
+      {{ panel('NACE', 'číselník CTS_OKEC_NACE2 · první 2 číslice', suggestion.nace, suggestion.nace_candidates, suggestion.nace_proposal, 'nace') }}
+      {{ panel('ESA 2010', 'číselník BA0036 · jen elementární kódy · nerezident', suggestion.esa, suggestion.esa_candidates, suggestion.esa_proposal, 'esa') }}
     </div>
 
     {% if suggestion.evidence_sources %}
@@ -521,9 +544,13 @@
     </ul>
     {% endif %}
 
-    <div class="downloads">
-      <a class="btn btn-primary" href="/suggest.xlsx?isin={{ suggestion.request.isin or '' | urlencode }}&name={{ suggestion.request.name or '' | urlencode }}&description={{ suggestion.request.description or '' | urlencode }}">Stáhnout výsledek (.xlsx)</a>
-    </div>
+    <form class="downloads" id="download" method="get" action="/suggest.xlsx">
+      <input type="hidden" name="isin" value="{{ suggestion.request.isin or '' }}">
+      <input type="hidden" name="name" value="{{ suggestion.request.name or '' }}">
+      <input type="hidden" name="description" value="{{ suggestion.request.description or '' }}">
+      <button class="btn btn-primary" type="submit">Stáhnout výsledek (.xlsx)</button>
+      <span class="note">Export obsahuje kódy označené „vybrat do exportu“.</span>
+    </form>
 
     {% if report %}
       {% if report.ok %}

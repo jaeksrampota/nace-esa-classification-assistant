@@ -122,11 +122,13 @@ class IssuerIdentifier:
         gleif: GleifSource | None = None,
         openfigi: OpenFigiSource | None = None,
         ecb: EcbRegister | None = None,
+        firds: Callable[[str], str | None] | None = None,
     ) -> None:
         self._settings = settings
         self._gleif = gleif
         self._openfigi = openfigi
         self._ecb = ecb
+        self._firds = firds
 
     @property
     def enabled(self) -> bool:
@@ -201,6 +203,8 @@ class IssuerIdentifier:
             notes,
             miss="GLEIF nemá k tomuto ISIN přiřazen LEI emitenta",
         )
+        if lei_record is None and "GLEIF" in sources and self._settings.firds_enabled:
+            lei_record = self._from_firds(isin, sources, notes)
         if lei_record is not None:
             evidence.append(
                 EvidenceSource(
@@ -239,6 +243,33 @@ class IssuerIdentifier:
             evidence=tuple(evidence),
             notes=tuple(notes),
         )
+
+    def _from_firds(self, isin: str, sources: list[str], notes: list[str]) -> LeiRecord | None:
+        """GLEIF has no ISIN mapping: ask ESMA FIRDS for the issuer's LEI, then GLEIF for it."""
+        from core.sources.firds import firds_lei
+
+        ask = self._firds or (lambda code: firds_lei(code, self._settings))
+        lei = self._ask(
+            "FIRDS",
+            True,
+            lambda: ask(isin),
+            sources,
+            notes,
+            miss="ani ESMA FIRDS neuvádí k tomuto ISIN LEI emitenta",
+        )
+        if not lei:
+            return None
+        record = self._ask(
+            "GLEIF",
+            True,
+            lambda: self._gleif_source().fetch(lei),
+            [],
+            notes,
+            miss=f"GLEIF nezná LEI {lei}, který uvádí ESMA FIRDS",
+        )
+        if record is not None:
+            notes.append(f"LEI emitenta doplněn z ESMA FIRDS ({lei}), GLEIF ISIN nemapuje")
+        return record
 
     def _identify_name(self, name: str) -> IssuerIdentity:
         """GLEIF by name: the one active entity called ``name``, flagged as a name match."""

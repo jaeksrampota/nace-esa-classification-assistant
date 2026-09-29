@@ -58,6 +58,13 @@ LOGGER = logging.getLogger(__name__)
 #: Records read per name search; the exact match is near the top, the rest are subsidiaries.
 NAME_SEARCH_SIZE: Final[str] = "50"
 
+#: The EU itself, by folded legal name: GLEIF files it as category GENERAL, legal form
+#: "Legal Entity of Public Law", jurisdiction BE - nothing structured says supranational,
+#: and OpenFIGI's Govt sector made it a central government (84 / 2003110).
+EU_BODIES: Final[frozenset[str]] = frozenset(
+    {"europeanunion", "europeanatomicenergycommunity", "evropskaunie"}
+)
+
 #: Human-readable record page, the citable form of a LEI (the API URL is JSON).
 RECORD_PAGE: Final[str] = "https://search.gleif.org/#/record/{lei}"
 
@@ -219,6 +226,11 @@ class LeiRecord:
             status.append(f"registrace LEI {self.registration_status}")
         if status:
             lines.append("Stav: " + ", ".join(status) + ".")
+        if fold(self.legal_name or "") in EU_BODIES:
+            lines.append(
+                "Podle názvu instituce Evropské unie, ne vláda státu "
+                "(EU institution, supranational) [EU_BODY]."
+            )
         lines.extend(self._parent_facts())
         return tuple(lines)
 
@@ -417,6 +429,10 @@ class GleifSource:
             (legal_form_key, True),
             (lambda text: fold(strip_legal_form(text)), True),
         ]
+        if legal_form_key(query) is None:
+            # A bare brand is compared legal form aside from the start: "Allianz" must tie
+            # the Belgian entity named just "ALLIANZ" with Allianz SE, not take it alone.
+            levels = levels[2:]
         widened = False
         for key, loose in levels:
             wanted = key(query)
@@ -449,7 +465,10 @@ class GleifSource:
         return [
             record
             for record in (_parse_record(item, now) for item in _data_list(payload))
+            # A branch carries its head office's legal name (Deutsche Bank's French branch)
+            # and is never the issuer MO sets up, so it must not turn a match into a tie.
             if (record.entity_status or "").upper() == "ACTIVE"
+            and (record.category or "").upper() != "BRANCH"
         ]
 
     def fetch(self, lei: str) -> LeiRecord | None:

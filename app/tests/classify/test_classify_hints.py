@@ -134,7 +134,6 @@ class TestHintTable:
             "BMW Finance N.V.",
             "Volkswagen International Finance N.V.",
             "Deutsche Telekom International Finance B.V.",
-            "Toyota Motor Credit Corporation",
             "Nordkap Funding B.V.",
         ],
     )
@@ -145,6 +144,15 @@ class TestHintTable:
         sheet = f"GLEIF (LEI X): {name}. Země sídla: NL. Kategorie subjektu podle GLEIF: běžná právnická osoba [GENERAL]."
         assert "kaptivni financni instituce a pujcovatele penez" in hinted_esa_families(sheet)
         assert "64" in hinted_nace(sheet)
+
+    def test_a_motor_credit_corporation_is_a_lender_not_a_captive(self) -> None:
+        """Toyota Motor Credit finances dealers' customers: the golden case expects 2002533."""
+        families = hinted_esa_families("GLEIF (LEI X): Toyota Motor Credit Corporation.")
+        assert list(families) == ["financni instituce poskytujici uvery"]
+
+    def test_multinational_and_holding_in_a_name_fire_nothing(self) -> None:
+        """Nestlé ('nadnárodní koncern') was a supranational, ASML Holding a captive."""
+        assert hinted_esa_families("Nestlé je nadnárodní koncern. ASML Holding N.V.") == {}
 
     def test_a_bare_finance_word_does_not_fire_the_vehicle_hint(self) -> None:
         """'finance' alone is half of section K; only the vehicle spelling counts."""
@@ -242,3 +250,39 @@ class TestRegisterRules:
         for rule in REGISTER_RULES:
             assert len(rule.nace) == 2 and rule.nace.isdigit()
             assert rule.note
+
+
+def test_market_infrastructure_is_a_financial_auxiliary() -> None:
+    from core.classify.hints import hinted_esa_families
+
+    assert "pomocne financni instituce" in hinted_esa_families(
+        "Deutsche Börse operates a stock exchange."
+    )
+
+
+def test_a_group_parent_called_holding_is_not_a_captive() -> None:
+    from core.classify.hints import hinted_esa_families
+
+    assert hinted_esa_families("E.ON je německá holdingová společnost v energetice.") == {}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Nestlé Finance International Ltd.",
+        "BMW US Capital, LLC",
+        "Toyota Motor Finance (Netherlands) B.V.",
+    ],
+)
+def test_more_finance_vehicle_names(name: str) -> None:
+    from core.classify.hints import hinted_esa_families
+
+    assert "kaptivni financni instituce a pujcovatele penez" in hinted_esa_families(name)
+
+
+def test_an_asset_manager_is_a_financial_auxiliary() -> None:
+    from core.classify.hints import hinted_esa_families
+
+    assert "pomocne financni instituce" in hinted_esa_families(
+        "Amundi is Europe's largest asset manager."
+    )

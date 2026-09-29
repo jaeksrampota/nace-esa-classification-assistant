@@ -219,14 +219,14 @@ class TestDeclarations:
         assert set(WRAPPED_COLUMNS) <= set(SUGGESTION_COLUMNS)
 
     def test_header_labels_explain_the_less_obvious_columns(self) -> None:
-        assert header_label("NACE_cts_id") == "NACE_cts_id (do CTS)"
-        assert header_label("ESA_cts_id") == "ESA_cts_id (do CTS)"
+        assert header_label("NACE_cts_id") == "NACE – CTS ID"
+        assert header_label("ESA_cts_id") == "ESA – CTS ID"
         assert header_label("issuer_lei") == "issuer_lei (GLEIF)"
         assert "GLEIF" in header_label("issuer_country")
         assert header_label("retrieved_at") == "retrieved_at (UTC)"
 
     def test_header_label_falls_back_to_the_column_key(self) -> None:
-        assert header_label("NACE_code") == "NACE_code"
+        assert header_label("NACE_alt1") == "NACE_alt1"
         assert header_label("not_a_column") == "not_a_column"
 
     def test_header_labels_are_unique(self) -> None:

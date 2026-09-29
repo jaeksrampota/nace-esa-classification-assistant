@@ -179,6 +179,13 @@ class Settings(BaseSettings):
             "it: who owns the issuer is the ESA control axis."
         ),
     )
+    firds_enabled: bool = Field(
+        default=True,
+        description=(
+            "When GLEIF has no ISIN mapping, ask ESMA FIRDS (registers.esma.europa.eu) for the "
+            "issuer's LEI, then GLEIF for that LEI. Eurobond vehicles and funds need it."
+        ),
+    )
     gleif_name_match: bool = Field(
         default=True,
         description=(

@@ -301,15 +301,40 @@ class TestDownload:
         book = load_workbook(io.BytesIO(response.content))
         sheet = book["Subjects"]
         headers = [cell.value for cell in sheet[1]]
-        assert "NACE_cts_id (do CTS)" in headers
+        assert headers == [
+            "Emitent",
+            "Popis činnosti",
+            "NACE",
+            "NACE – CTS ID",
+            "ESA",
+            "ESA – CTS ID",
+        ]
         assert sheet.max_row == 2
+
+    def test_a_chosen_code_replaces_the_proposal(self, client: TestClient) -> None:
+        response = client.get("/suggest.xlsx", params={"name": "Nordkap", "esa": "2002213"})
+        book = load_workbook(io.BytesIO(response.content))
+        assert book["Subjects"].cell(row=2, column=5).value == "2002213"
+        assert book["Subjects"].cell(row=2, column=6).value
+        pairs = {row[0].value: row[1].value for row in book["Run"].iter_rows(min_row=2)}
+        assert pairs["ESA vybral"].startswith("uživatel")
+        assert pairs["NACE vybral"] == "návrh nástroje"
+
+    def test_a_code_off_the_shortlist_is_refused(self, client: TestClient) -> None:
+        response = client.get("/suggest.xlsx", params={"name": "Nordkap", "nace": "01"})
+        assert response.status_code == 400
+
+    def test_the_page_offers_every_shortlisted_code_to_choose(self, client: TestClient) -> None:
+        text = client.post("/suggest", data={"name": "Nordkap Funding B.V."}).text
+        assert 'name="esa" value="2002703" form="download" checked' in text
+        assert text.count('form="download"') >= 3
 
     def test_codes_are_written_as_text(self, client: TestClient) -> None:
         """A NACE code losing its leading zero on the way out would be the tool's own bug."""
         response = client.get("/suggest.xlsx", params={"name": "Nordkap"})
         sheet = load_workbook(io.BytesIO(response.content))["Subjects"]
         headers = [cell.value for cell in sheet[1]]
-        column = headers.index("NACE_code") + 1
+        column = headers.index("NACE") + 1
         assert sheet.cell(row=2, column=column).number_format == "@"
 
     def test_the_run_sheet_records_provenance(self, client: TestClient) -> None:
@@ -551,10 +576,9 @@ class TestIsinIdentity:
 
     def test_the_download_carries_the_lei(self, isin_client: TestClient) -> None:
         response = isin_client.get("/suggest.xlsx", params={"isin": self.ISIN})
-        sheet = load_workbook(io.BytesIO(response.content))["Subjects"]
-        headers = [cell.value for cell in sheet[1]]
-        column = headers.index("issuer_lei (GLEIF)") + 1
-        assert sheet.cell(row=2, column=column).value == self.LEI
+        run = load_workbook(io.BytesIO(response.content))["Run"]
+        pairs = {row[0].value: row[1].value for row in run.iter_rows(min_row=2)}
+        assert pairs["LEI"] == self.LEI
 
     def test_health_reports_the_registers(self, isin_client: TestClient) -> None:
         body = isin_client.get("/health").json()
