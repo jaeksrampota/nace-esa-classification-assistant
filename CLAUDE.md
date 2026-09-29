@@ -45,7 +45,8 @@ Never scrape `apl.czso.cz` or `or.justice.cz`.
 
 ```
 core/identifiers  ico.py (mod-11; batch reader only), isin.py
-core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), web.py, wikimedia.py
+core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), web.py, wikimedia.py,
+                  names.py (name matching), ecb.py (ECB lists of financial institutions)
 core/codebooks    loaders, versioning, consistency; blob.py (private Vercel Blob)
 core/classify     candidates.py (pre-filter), hints.py, llm.py, proposal.py, golden.py,
                   budget.py (limits, usage ledger), usage_report.py (the ledger as Excel)
@@ -94,6 +95,7 @@ framework. No pandas; numpy is a dev extra only (tests feed numpy scalars to the
 ../.venv/Scripts/ruff.exe check . && ../.venv/Scripts/ruff.exe format --check .
 ../.venv/Scripts/python.exe -m core.codebooks [--no-strict --json --dir PATH]
 ../.venv/Scripts/python.exe -m core.reports --list [--dir PATH] [--xlsx PATH]   # the error reports
+../.venv/Scripts/python.exe -m core.sources.ecb --refresh | --lei LEI   # ECB lists into the database
 ../.venv/Scripts/python.exe set_admin_password.py   # asks twice; one hash into .env as APP_ and ADMIN_PASSWORD_HASH
 ```
 
@@ -159,6 +161,15 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
     to the description the pre-filter scores and the model reads.
   * The legal name is the web search query (an ISIN never was one); what MO typed still wins as
     the displayed name.
+  * **With no ISIN, the typed name is asked in GLEIF** (`GLEIF_NAME_MATCH`, 29 Sept 2026):
+    `filter[entity.legalName]` is a word search ("adidas" → adidas AG + 30 subsidiaries), so
+    only an ACTIVE entity whose name *is* the query counts (`names.fold`), else the same base
+    and legal form with long = short (`names.legal_form_key`: "OMV AG" = "OMV
+    AKTIENGESELLSCHAFT", not "OMV - S.P.A."), else equal with the legal form stripped
+    ("adidas" = "adidas AG"); exactly one per level, or none ("OMV" alone ties three).
+    The search needs every word, so a typed legal form costs a second search without it. Its LEI then finds the
+    Wikipedia article like an ISIN's does. Flagged "podle názvu, ne podle ISIN"; OpenFIGI is
+    not asked. An ISIN always wins over the name.
   * **Facts are stated, never decided**: "the ultimate parent sits abroad" is a fact; whether
     that is "pod zahraniční kontrolou" is the classifier's call (Q7).
   * Rate limits: GLEIF 60/min (throttle 1.0 s), OpenFIGI keyless 25/min (throttle 2.5 s). 429
@@ -182,7 +193,8 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
     edition (en, then cs) with a hit decides, exactly one item may match, and an item carrying
     another entity's LEI is refused - BMW Finance N.V. stays unmatched rather than becoming BMW.
     Second try without the legal-form suffix; then a brand hit with a LEI is refused too.
-    Ties ("Bundesrepublik Deutschland", "European Union") are left alone. Measured on the 36
+    Ties ("Bundesrepublik Deutschland", "European Union") are left alone, unless exactly one
+    tied item has a cs/en article ("Adidas AG" vs an empty duplicate item, 29 Sept 2026). Measured on the 36
     golden ISINs: 14 described by LEI, 6 by name, 16 none (vehicles, funds, tied names).
     The item is sometimes the group or brand (BMW AG -> "BMW"), so the page always says to
     check; a name match says "podle shody názvu, ne identifikátoru".
@@ -195,6 +207,16 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
     `{cs,en}.wikipedia.org`, in `/probe`'s default set while `WIKIMEDIA_ENABLED`.
   * Test helpers not about it set `wikimedia_enabled=False`, or a LEI in a fixture reaches the
     real Wikimedia.
+- **ECB lists** (`ecb.py`, 29 Sept 2026): the LEI from GLEIF is looked up in the ECB's lists of
+  financial institutions - MFI (central banks, credit institutions, MMFs, other deposit-takers),
+  IF, FVC, IC, PF - loaded into the central database's `ecb_institutions` table by `python -m
+  core.sources.ecb --refresh` (~30 s, 69k LEIs; MFI daily CSV, the rest monthly/quarterly
+  xlsx zips; refresh by hand, no scheduler yet). A member gets a fact-sheet line with a
+  bracketed code (`[ECB_MFI:CREDIT_INSTITUTION]`, `[ECB_IF]`, ...) and `hints.ESA_REGISTER_RULES`
+  settle the **ESA family** from it (register score, like GLEIF's category for NACE) - never
+  the control variant (Q7). A LEI on no list is stated as absent (with the lists' date), never
+  decided; an empty table states nothing; a database failure is a note. Needs `DATABASE_URL`
+  (`ECB_ENABLED`). The `source` column is unchanged; the citation is in the evidence list.
 - **Candidate pre-filter** (`candidates.py`): narrows to ~12 per codebook, each already carrying
   its CTS ID, so a returned code cannot be one CTS does not know. It optimises **recall**: a code
   the filter omits is one the model can never return. Mechanisms: the reviewable keyword table

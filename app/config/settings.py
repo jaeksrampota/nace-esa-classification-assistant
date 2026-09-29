@@ -179,6 +179,21 @@ class Settings(BaseSettings):
             "it: who owns the issuer is the ESA control axis."
         ),
     )
+    gleif_name_match: bool = Field(
+        default=True,
+        description=(
+            "With no ISIN, look the typed name up in GLEIF and take the one active entity "
+            "whose name equals it (legal form aside), flagged for review. Off: ISIN only."
+        ),
+    )
+    ecb_enabled: bool = Field(
+        default=True,
+        description=(
+            "Look the issuer's LEI up in the ECB lists of financial institutions (MFI, IF, FVC, "
+            "IC, PF) loaded into the central database by `python -m core.sources.ecb "
+            "--refresh`. Needs DATABASE_URL; the family it states settles the ESA family."
+        ),
+    )
     openfigi_enabled: bool = Field(
         default=True, description="Describe the instrument behind an ISIN through OpenFIGI."
     )

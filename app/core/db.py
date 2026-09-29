@@ -11,7 +11,8 @@ runs - and every device and every user writes to the same place:
 * ``classifications`` - the answer cache :class:`core.classify.cache.ClassificationCache`,
 * ``audit_events``   - every lookup and every error report: identifier, user, outcome,
   never content (:mod:`core.audit`),
-* ``error_reports``  - the request, the result row and MO's note (:mod:`core.reports`).
+* ``error_reports``  - the request, the result row and MO's note (:mod:`core.reports`),
+* ``ecb_institutions`` - the ECB lists of financial institutions by LEI (:mod:`core.sources.ecb`).
 
 The stores here implement the same protocols as the SQLite and file stores next to them,
 so nothing downstream knows where a row went. Design rules, the same as for the files:
@@ -105,6 +106,17 @@ SCHEMA: Final[tuple[str, ...]] = (
         report TEXT NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS error_reports_created_at ON error_reports (created_at)",
+    """CREATE TABLE IF NOT EXISTS ecb_institutions (
+        lei TEXT NOT NULL,
+        list_name TEXT NOT NULL,
+        code TEXT NOT NULL,
+        name TEXT,
+        country TEXT,
+        subtype TEXT,
+        head_lei TEXT,
+        as_of TEXT NOT NULL,
+        PRIMARY KEY (lei, list_name)
+    )""",
 )
 
 _SERIAL: Final[dict[Engine, str]] = {

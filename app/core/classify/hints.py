@@ -468,3 +468,30 @@ REGISTER_RULES: Final[tuple[RegisterRule, ...]] = (
 def register_nace(text: str) -> dict[str, str]:
     """``{NACE division: reason}`` settled by a GLEIF category in the fact sheet."""
     return {rule.nace: f"register: {rule.note}" for rule in REGISTER_RULES if rule.matches(text)}
+
+
+#: ECB list memberships -> the ESA family they settle (the family, never the control
+#: variant). Matched on the fact sheet's bracketed code, like the GLEIF rules.
+ESA_REGISTER_RULES: Final[tuple[tuple[str, str, str], ...]] = (
+    ("ECB_MFI:CENTRAL_BANK", "centralni banka", "ECB MFI list: central bank"),
+    ("ECB_MFI:CREDIT_INSTITUTION", "banky", "ECB MFI list: credit institution"),
+    ("ECB_MFI:MONEY_MARKET_FUND", "fondy penezniho trhu", "ECB MFI list: money market fund"),
+    (
+        "ECB_MFI:OTHER_INSTITUTION",
+        "jine instituce prijimajici vklady",
+        "ECB MFI list: other deposit-taking corporation",
+    ),
+    ("ECB_IF", "investicni fondy jine nez fondy penezniho trhu", "ECB list of investment funds"),
+    ("ECB_FVC", "ucelove financni instituce pro sekuritizaci aktiv", "ECB list of FVCs"),
+    ("ECB_IC", "pojistovaci spolecnosti (ic)", "ECB list of insurance corporations"),
+    ("ECB_PF", "penzijni fondy (pf)", "ECB list of pension funds"),
+)
+
+
+def register_esa_families(text: str) -> dict[str, str]:
+    """``{ESA family key: reason}`` settled by an ECB list membership in the fact sheet."""
+    return {
+        family: f"register: {note}"
+        for code, family, note in ESA_REGISTER_RULES
+        if f"[{code}]" in text
+    }

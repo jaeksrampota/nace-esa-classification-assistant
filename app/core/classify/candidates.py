@@ -37,6 +37,7 @@ from core.classify.hints import (
     build_families,
     hinted_esa_families,
     hinted_nace,
+    register_esa_families,
     register_nace,
 )
 from core.classify.models import ESA, NACE, Candidate, CandidateSet, Kind
@@ -218,7 +219,7 @@ class EsaCandidateFilter:
             )
             for family in self._families.values()
         ]
-        ranked = _scored(entries, description, hints)
+        ranked = _scored(entries, description, hints, register_esa_families(description))
 
         # Reserve slots for the residual families before filling from the ranking. Appending
         # them afterwards is not enough: an industrial issuer whose description merely

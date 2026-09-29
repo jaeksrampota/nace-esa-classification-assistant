@@ -191,7 +191,9 @@ class SuggestionService:
         cleaned, notes = request.cleaned()
 
         identity = (
-            self._identifier.identify(cleaned.isin) if self._identifier is not None else NO_IDENTITY
+            self._identifier.identify(cleaned.isin, name=cleaned.name)
+            if self._identifier is not None
+            else NO_IDENTITY
         )
         # The register's legal name is the best possible search query; what the user typed
         # still wins as the name shown, because it is what they will recognise. The LEI lets

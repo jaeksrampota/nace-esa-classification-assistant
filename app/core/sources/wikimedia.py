@@ -14,7 +14,8 @@ item carries the LEI (or there is no LEI) is the **official name** tried, and th
 *is* the name (case, diacritics and punctuation aside), exactly one item matches, and the item
 does not carry some other entity's LEI - which is what keeps "BMW Finance N.V." from being
 described as BMW, and "Amundi Funds" as the asset manager. A name that matches several items
-("Bundesrepublik Deutschland": Germany, West Germany, ...) is left alone. A description of the
+("Bundesrepublik Deutschland": Germany, West Germany, ...) is left alone, unless only one of
+them has a Wikipedia article (an empty duplicate item beside the real one). A description of the
 wrong issuer is worse than none, so every name match is flagged for the reviewer.
 
 Endpoints, verified live on 2026-09-23 with the repository's User-Agent (Wikimedia refuses one
@@ -47,7 +48,6 @@ from __future__ import annotations
 import logging
 import re
 import time
-import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -63,6 +63,8 @@ from core.sources.base import (
     SourceResponseError,
     SourceUnavailableError,
 )
+from core.sources.names import LEGAL_FORM_RE as _LEGAL_FORM_RE
+from core.sources.names import fold as _fold
 
 LOGGER = logging.getLogger(__name__)
 
@@ -82,16 +84,6 @@ NAME_SEARCH_LIMIT: Final[int] = 7
 #: Editions whose labels and aliases are searched, in order.
 NAME_SEARCH_LANGUAGES: Final[tuple[str, ...]] = ("en", "cs")
 
-#: Legal-form suffixes stripped for the second, looser name query ("Kommuninvest i Sverige AB"
-#: -> "Kommuninvest i Sverige"). Deliberately a list of *legal forms*, not of words.
-_LEGAL_FORM_RE: Final[re.Pattern[str]] = re.compile(
-    r"""(?:[\s,]+(?:AG|SE|SA|S\.A\.|SpA|S\.p\.A\.|N\.?V\.?|B\.?V\.?|AB|ASA|AS|A/S|Oyj|plc|
-    Ltd\.?|Limited|LLC|Inc\.?|Corp\.?|Corporation|GmbH|KGaA|S\.à\s?r\.l\.|Sàrl|S\.A\.S\.|SAS|
-    Aktiengesellschaft|Aktiebolag|Aktieselskab|Realkreditaktieselskab))+\s*$""",
-    re.IGNORECASE | re.VERBOSE,
-)
-#: Anything that is not a letter or digit, for name comparison.
-_NON_ALNUM_RE: Final[re.Pattern[str]] = re.compile(r"[^0-9a-z]+")
 #: Search hits with these words in the description are never issuers: a disambiguation page,
 #: a paper, or a name as such ("Generali" is also a family name).
 _NEVER_AN_ISSUER: Final[tuple[str, ...]] = (
@@ -428,7 +420,9 @@ class WikimediaSource:
         suffix. A hit counts when the text Wikidata matched equals the query after
         :func:`_fold` (case, diacritics, punctuation). Then:
 
-        * several matching items -> ``None`` (a namesake would be a wrong description);
+        * several matching items -> the one with a Wikipedia article in the configured
+          editions, when exactly one has it (an empty duplicate item must not block the real
+          one: "Adidas AG"); otherwise ``None`` (a namesake would be a wrong description);
         * the item carries a LEI (P1278) other than ``lei`` -> ``None`` (another legal entity:
           the group, the brand, the manager);
         * the item carries a LEI, ``lei`` is unknown and only the suffix-stripped query matched
@@ -444,8 +438,11 @@ class WikimediaSource:
         for exact, text in queries:
             hits = self._search_names(text, deadline)
             if len(hits) > 1:
-                LOGGER.info("Wikidata: %r matches %d items; none taken", text, len(hits))
-                return None
+                described = self._with_article(hits, deadline)
+                if len(described) != 1:
+                    LOGGER.info("Wikidata: %r matches %d items; none taken", text, len(hits))
+                    return None
+                hits = described
             if not hits:
                 continue
             qid = hits[0]
@@ -497,6 +494,21 @@ class WikimediaSource:
                     continue
                 found[qid] = None
         return list(found)
+
+    def _with_article(self, qids: list[str], deadline: float | None) -> list[str]:
+        """The items of ``qids`` that have an article in one of the configured editions."""
+        entities = _mapping(
+            self._wikidata(
+                {
+                    "action": "wbgetentities",
+                    "ids": "|".join(qids),
+                    "props": "sitelinks",
+                    "sitefilter": "|".join(f"{lang}wiki" for lang in self.languages),
+                },
+                deadline,
+            ).get("entities")
+        )
+        return [qid for qid in qids if _mapping(_mapping(entities.get(qid)).get("sitelinks"))]
 
     def _lei_of(self, qid: str, deadline: float | None) -> str | None:
         """The LEI the item states (P1278), or ``None``."""
@@ -646,13 +658,6 @@ def _text(value: object) -> str | None:
 def _value(labels: Mapping[str, Any], lang: str) -> str | None:
     """``labels[lang]["value"]``, the shape of Wikidata labels and descriptions."""
     return _text(_mapping(labels.get(lang)).get("value"))
-
-
-def _fold(name: str) -> str:
-    """``"Assicurazioni Generali S.p.A."`` -> ``"assicurazionigeneralispa"``: the comparison key."""
-    decomposed = unicodedata.normalize("NFKD", name)
-    ascii_only = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
-    return _NON_ALNUM_RE.sub("", ascii_only.lower())
 
 
 def _clean(extract: str) -> str:

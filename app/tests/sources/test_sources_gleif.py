@@ -13,12 +13,15 @@ from core.classify.hints import hinted_esa_families, hinted_nace
 from core.sources.base import SourceResponseError, SourceUnavailableError
 from core.sources.gleif import GleifSource, LeiRecord
 from tests.sources.conftest import (
+    GLEIF_ADIDAS_AG,
+    GLEIF_ADIDAS_SEARCH,
     GLEIF_BMW_AG,
     GLEIF_BMW_FINANCE,
     GLEIF_DEUTSCHE_BANK,
     GLEIF_EIB,
     GLEIF_FUND,
     GLEIF_LAND_BERLIN,
+    _gleif_item,
     gleif_client,
     make_client,
 )
@@ -323,3 +326,104 @@ def test_close_leaves_an_injected_client_alone() -> None:
     source = GleifSource(settings(), client=client)
     source.close()
     assert not client.is_closed
+
+
+class TestNameLookup:
+    """A typed name -> the one active entity so named; a namesake is worse than nothing."""
+
+    @staticmethod
+    def source(by_name: dict[str, list[dict[str, object]]], calls: list[str] | None = None):
+        client = gleif_client(by_name=by_name, calls=calls)  # type: ignore[arg-type]
+        return GleifSource(settings(gleif_fetch_parents=False), client=client, sleep=lambda _: None)
+
+    def test_the_brand_finds_the_parent_not_the_subsidiaries(self) -> None:
+        record = self.source({"adidas": GLEIF_ADIDAS_SEARCH}).find_by_name("adidas")
+        assert record is not None
+        assert record.lei == "549300JSX0Z4CW0V5023"
+        assert record.legal_name == "adidas AG"
+
+    def test_the_full_name_matches_exactly(self) -> None:
+        record = self.source({"Adidas AG": GLEIF_ADIDAS_SEARCH}).find_by_name("ADIDAS  AG")
+        assert record is not None and record.legal_name == "adidas AG"
+
+    def test_two_entities_bearing_the_name_means_none(self) -> None:
+        twin = {**GLEIF_ADIDAS_AG, "id": "X" * 20}
+        twin["attributes"] = {**GLEIF_ADIDAS_AG["attributes"], "lei": "X" * 20}  # type: ignore[dict-item]
+        assert self.source({"adidas": [GLEIF_ADIDAS_AG, twin]}).find_by_name("adidas") is None
+
+    def test_an_inactive_entity_is_never_taken(self) -> None:
+        gone = {**GLEIF_ADIDAS_AG}
+        attributes = dict(gone["attributes"])  # type: ignore[arg-type]
+        attributes["entity"] = {**attributes["entity"], "status": "INACTIVE"}
+        gone["attributes"] = attributes
+        assert self.source({"adidas": [gone]}).find_by_name("adidas") is None
+
+    def test_a_name_that_only_contains_the_query_is_not_a_match(self) -> None:
+        assert (
+            self.source({"adidas Foundation": GLEIF_ADIDAS_SEARCH}).find_by_name(
+                "adidas Foundation"
+            )
+            is None
+        )
+
+    def test_the_search_asks_the_legal_name_filter(self) -> None:
+        calls: list[str] = []
+        self.source({"adidas": GLEIF_ADIDAS_SEARCH}, calls).find_by_name("adidas")
+        assert "filter%5Bentity.legalName%5D=adidas" in calls[0]
+
+
+class TestLegalFormsAgree:
+    """'OMV' names three entities; 'OMV AG' only the Austrian one (live, 2026-09-29)."""
+
+    OMV_AG = _gleif_item(
+        "549300V62YJ9HTLRI486",
+        "OMV AKTIENGESELLSCHAFT",
+        country="AT",
+        jurisdiction="AT",
+        category="GENERAL",
+    )
+    NAMESAKES = [
+        OMV_AG,
+        _gleif_item(
+            "549300TS4WX683KMWT10", "ÖMV AB", country="SE", jurisdiction="SE", category="GENERAL"
+        ),
+        _gleif_item(
+            "815600B16123A5D64366",
+            "OMV - S.P.A.",
+            country="IT",
+            jurisdiction="IT",
+            category="GENERAL",
+        ),
+    ]
+    TRADING = _gleif_item(
+        "549300HUJ5CJUX02RS52",
+        "OMV SUPPLY & TRADING AG",
+        country="CH",
+        jurisdiction="CH",
+        category="GENERAL",
+    )
+
+    def source(self, calls: list[str] | None = None) -> GleifSource:
+        client = gleif_client(
+            by_name={"OMV": self.NAMESAKES, "OMV AG": [self.TRADING]}, calls=calls
+        )
+        return GleifSource(settings(gleif_fetch_parents=False), client=client, sleep=lambda _: None)
+
+    def test_the_brand_alone_is_a_tie(self) -> None:
+        assert self.source().find_by_name("OMV") is None
+
+    def test_the_short_legal_form_picks_the_long_one(self) -> None:
+        record = self.source().find_by_name("OMV AG")
+        assert record is not None and record.legal_name == "OMV AKTIENGESELLSCHAFT"
+
+    def test_the_search_is_widened_only_after_the_exact_level_missed(self) -> None:
+        calls: list[str] = []
+        self.source(calls).find_by_name("OMV AG")
+        assert len(calls) == 2
+        assert "filter%5Bentity.legalName%5D=OMV&" in calls[1]
+
+
+def test_match_name_reports_how_many_tied() -> None:
+    source = TestLegalFormsAgree().source()
+    assert source.match_name("OMV") == (None, 3)
+    assert source.match_name("Nobody at all") == (None, 0)

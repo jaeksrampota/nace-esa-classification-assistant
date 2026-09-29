@@ -75,7 +75,7 @@ class FakeIdentifier:
         self.identity = identity
         self.asked: list[str | None] = []
 
-    def identify(self, isin: str | None) -> IssuerIdentity:
+    def identify(self, isin: str | None, *, name: str | None = None) -> IssuerIdentity:
         self.asked.append(isin)
         return self.identity if isin else NO_IDENTITY
 
@@ -283,9 +283,9 @@ class TestDeadline:
         clock = {"now": 100.0}
 
         class SlowIdentifier(FakeIdentifier):
-            def identify(self, isin: str | None) -> IssuerIdentity:
+            def identify(self, isin: str | None, *, name: str | None = None) -> IssuerIdentity:
                 clock["now"] += register_seconds
-                return super().identify(isin)
+                return super().identify(isin, name=name)
 
         base, _, _ = service()
         stub = StubLlmProvider({"NACE": answer("64"), "ESA": answer("2002703")})

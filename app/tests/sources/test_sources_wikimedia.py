@@ -165,6 +165,38 @@ class TestItemByName:
         )
         assert source(client).find_by_name("Bundesrepublik Deutschland") is None
 
+    ADIDAS = {
+        "Adidas AG": {
+            "search": [
+                {
+                    "id": "Q3895",
+                    "label": "Adidas AG",
+                    "description": "German multinational corporation",
+                    "match": {"type": "label", "text": "Adidas AG"},
+                },
+                {"id": "Q132108367", "label": "Adidas Ag", "match": {"text": "Adidas Ag"}},
+            ],
+            "success": 1,
+        }
+    }
+
+    def test_an_empty_duplicate_does_not_block_the_item_with_the_article(self) -> None:
+        # Live, 2026-09-29: "Adidas AG" is the company and an empty item with no article.
+        client = wikimedia_client(name_search=self.ADIDAS, with_article={"Q3895"})
+        item = source(client).find_by_name("Adidas AG")
+        assert item is not None and item.qid == "Q3895"
+
+    def test_a_tie_where_no_item_has_an_article_means_none(self) -> None:
+        calls: list[httpx.Request] = []
+        client = wikimedia_client(name_search=self.ADIDAS, with_article=set(), calls=calls)
+        assert source(client).find_by_name("Adidas AG") is None
+        # Refused outright, not retried with the looser suffix-stripped name.
+        assert "Adidas" not in [c.url.params.get("search") for c in calls]
+
+    def test_a_tie_where_several_have_an_article_means_none(self) -> None:
+        client = wikimedia_client(name_search=self.ADIDAS)
+        assert source(client).find_by_name("Adidas AG") is None
+
     def test_the_legal_form_is_stripped_for_a_second_try(self) -> None:
         calls: list[httpx.Request] = []
         source(wikimedia_client(calls=calls, name_search=self.EIB)).find_by_name(

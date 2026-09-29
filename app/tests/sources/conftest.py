@@ -159,6 +159,35 @@ GLEIF_NOT_FOUND: dict[str, Any] = {
 }
 
 
+#: ``filter[entity.legalName]=adidas`` (live, 2026-09-29, trimmed from 31 records): the
+#: parent first, then subsidiaries whose names only contain the word.
+GLEIF_ADIDAS_AG = _gleif_item(
+    "549300JSX0Z4CW0V5023",
+    "adidas AG",
+    country="DE",
+    jurisdiction="DE",
+    category="GENERAL",
+    legal_form="6QQB",
+)
+GLEIF_ADIDAS_SEARCH: list[dict[str, Any]] = [
+    GLEIF_ADIDAS_AG,
+    _gleif_item(
+        "529900TTMUJRB2XIJ375",
+        "adidas Foundation gGmbH",
+        country="DE",
+        jurisdiction="DE",
+        category="GENERAL",
+    ),
+    _gleif_item(
+        "5299000W29TKYGMH9N40",
+        "adidas International Trading AG",
+        country="CH",
+        jurisdiction="CH",
+        category="GENERAL",
+    ),
+]
+
+
 def _gleif_404() -> httpx.Response:
     return httpx.Response(404, json=payload(GLEIF_NOT_FOUND))
 
@@ -171,10 +200,12 @@ def gleif_client(
     exceptions: dict[str, str] | None = None,
     status: int = 200,
     calls: list[str] | None = None,
+    by_name: dict[str, list[dict[str, Any]]] | None = None,
 ) -> httpx.Client:
     """Client answering the GLEIF endpoints the adapter uses; anything unknown is a 404.
 
-    ``by_isin`` maps ISIN -> record item, ``records`` LEI -> item, ``parents`` maps
+    ``by_isin`` maps ISIN -> record item, ``by_name`` a legal-name search -> its items
+    (case-insensitive; anything else finds nothing), ``records`` LEI -> item, ``parents`` maps
     ``"LEI/direct-parent"`` / ``"LEI/ultimate-parent"`` -> the parent's item, ``exceptions``
     LEI -> reporting-exception reason. ``status`` other than 200 makes every answer that
     status (to drive outages). ``calls`` collects the requested URLs.
@@ -190,6 +221,10 @@ def gleif_client(
         if status != 200:
             return httpx.Response(status, text="boom")
         path = request.url.path
+        if path.endswith("/lei-records") and "filter[entity.legalName]" in request.url.params:
+            asked = request.url.params["filter[entity.legalName]"].lower()
+            items = next((v for k, v in (by_name or {}).items() if k.lower() == asked), [])
+            return httpx.Response(200, json={"data": [payload(item) for item in items]})
         if path.endswith("/lei-records"):
             item = by_isin.get(request.url.params.get("filter[isin]", ""))
             return httpx.Response(200, json={"data": [payload(item)] if item else []})
@@ -515,6 +550,7 @@ def wikimedia_client(
     calls: list[httpx.Request] | None = None,
     name_search: dict[str, dict[str, Any]] | None = None,
     item_lei: dict[str, str | None] | None = None,
+    with_article: set[str] | None = None,
 ) -> httpx.Client:
     """Client answering the Wikidata Action API and the Wikipedia summaries.
 
@@ -523,6 +559,8 @@ def wikimedia_client(
     than 200 makes every Wikidata answer that status. ``name_search`` maps a search text to
     its ``wbsearchentities`` answer (anything else finds nothing); ``item_lei`` maps an item
     to the LEI it carries (``None`` = no claim; an item not listed carries none).
+    ``with_article`` names the items that have a Wikipedia article when several tie on a
+    name (``None`` = all of them).
     """
     summaries = {"cs": WIKIPEDIA_DB_CS, "en": WIKIPEDIA_DB_EN} if summaries is None else summaries
 
@@ -548,6 +586,20 @@ def wikimedia_client(
                 body = lei_claims((item_lei or {}).get(params.get("entity", "")))
             elif action == "wbgetclaims":
                 body = WIKIDATA_DB_CLAIMS if claims is None else claims
+            elif action == "wbgetentities" and params.get("props") == "sitelinks":
+                ids = params.get("ids", "").split("|")
+                article = {"enwiki": {"site": "enwiki", "title": "Article"}}
+                body = {
+                    "entities": {
+                        qid: {
+                            "id": qid,
+                            "sitelinks": article
+                            if with_article is None or qid in with_article
+                            else {},
+                        }
+                        for qid in ids
+                    }
+                }
             elif action == "wbgetentities" and params.get("props") == "labels":
                 body = WIKIDATA_DB_INDUSTRIES if industries is None else industries
             elif action == "wbgetentities":

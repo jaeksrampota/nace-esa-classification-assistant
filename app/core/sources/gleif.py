@@ -15,6 +15,9 @@ limit 60 requests/minute):
   an ISIN; ``data`` is an empty list when GLEIF has no mapping for the ISIN (coverage is
   wide but not complete - the iShares Core MSCI World ETF ``IE00B4L5Y983`` is missing while
   OpenFIGI knows it, which is why :mod:`core.sources.identity` asks both).
+* ``GET /lei-records?filter[entity.legalName]=adidas&page[size]=50`` - a word search on the
+  legal name (verified 2026-09-29: "adidas" -> 31 records, adidas AG first, then
+  subsidiaries; "Adidas AG" -> adidas AG and adidas International Trading AG).
 * ``GET /lei-records/{lei}`` - one record; 404 for an unknown LEI.
 * ``GET /lei-records/{lei}/direct-parent`` and ``.../ultimate-parent`` - the parent's own
   LEI record (BMW Finance N.V. -> Bayerische Motoren Werke AG, DE), or **404** when none is
@@ -48,8 +51,12 @@ from core.sources.base import (
     SourceResponseError,
     SourceUnavailableError,
 )
+from core.sources.names import fold, legal_form_key, strip_legal_form
 
 LOGGER = logging.getLogger(__name__)
+
+#: Records read per name search; the exact match is near the top, the rest are subsidiaries.
+NAME_SEARCH_SIZE: Final[str] = "50"
 
 #: Human-readable record page, the citable form of a LEI (the API URL is JSON).
 RECORD_PAGE: Final[str] = "https://search.gleif.org/#/record/{lei}"
@@ -383,6 +390,67 @@ class GleifSource:
         if not items:
             return None
         return self._complete(_parse_record(items[0], self._now()))
+
+    def find_by_name(self, name: str) -> LeiRecord | None:
+        """The one active entity whose legal (or other) name *is* ``name``, else ``None``.
+
+        GLEIF's ``filter[entity.legalName]`` is a word search ("adidas" -> adidas AG and 30
+        subsidiaries), so a hit counts only when its name equals the query after
+        :func:`~core.sources.names.fold`; failing that, when base name and legal form agree
+        with the long and short form taken as one ("OMV AG" = "OMV Aktiengesellschaft", not
+        "OMV - S.p.A."); failing that, when it equals it with the legal form stripped from
+        both ("adidas" = "adidas AG"). Exactly one entity may match at a level, or none is
+        taken - a namesake's record would be worse than none.
+
+        The search needs every word, so "OMV AG" never finds "OMV AKTIENGESELLSCHAFT": a
+        typed legal form costs a second search without it, once the exact level missed.
+        """
+        return self.match_name(name)[0]
+
+    def match_name(self, name: str) -> tuple[LeiRecord | None, int]:
+        """:meth:`find_by_name` plus how many entities tied when none was taken (0 = none found)."""
+        query = " ".join(name.split())
+        stripped = strip_legal_form(query)
+        active = self._search_active(query)
+        levels: list[tuple[Callable[[str], str | None], bool]] = [
+            (fold, False),
+            (legal_form_key, True),
+            (lambda text: fold(strip_legal_form(text)), True),
+        ]
+        widened = False
+        for key, loose in levels:
+            wanted = key(query)
+            if wanted is None or len(wanted) < 3:
+                continue
+            if loose and not widened and fold(stripped) != fold(query):
+                known = {record.lei for record in active}
+                active += [r for r in self._search_active(stripped) if r.lei not in known]
+                widened = True
+            matches = {
+                record.lei: record
+                for record in active
+                if any(
+                    key(text) == wanted for text in (record.legal_name, *record.other_names) if text
+                )
+            }
+            if len(matches) > 1:
+                LOGGER.info("GLEIF: %r matches %d entities; none taken", query, len(matches))
+                return None, len(matches)
+            if matches:
+                return self._complete(next(iter(matches.values()))), 0
+        return None, 0
+
+    def _search_active(self, text: str) -> list[LeiRecord]:
+        """The ACTIVE entities GLEIF's legal-name word search returns for ``text``."""
+        payload = self._request(
+            "/lei-records", {"filter[entity.legalName]": text, "page[size]": NAME_SEARCH_SIZE}
+        )
+        now = self._now()
+        return [
+            record
+            for record in (_parse_record(item, now) for item in _data_list(payload))
+            if (record.entity_status or "").upper() == "ACTIVE"
+        ]
 
     def fetch(self, lei: str) -> LeiRecord | None:
         """The record of ``lei``, or ``None`` for an unknown LEI."""

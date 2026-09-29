@@ -51,6 +51,14 @@ class FakeGleif:
             raise outcome
         return outcome  # type: ignore[return-value]
 
+    def match_name(self, name: str) -> tuple[LeiRecord | None, int]:
+        """Scripted per name; an ``int`` outcome is that many tied entities."""
+        outcome = self.outcomes.get(name)
+        if isinstance(outcome, int):
+            self.asked.append(name)
+            return None, outcome
+        return self.find_by_isin(name), 0
+
     def close(self) -> None:
         self.closed = True
 
@@ -265,3 +273,48 @@ def test_identity_defaults_are_empty() -> None:
     identity = IssuerIdentity()
     assert identity.legal_name is None and identity.lei is None and identity.country is None
     assert identity.facts() == () and identity.evidence == () and identity.sources == ()
+
+
+class TestByName:
+    """No ISIN: the typed name is looked up in GLEIF and the match is flagged for review."""
+
+    def test_a_name_finds_the_register_record(self) -> None:
+        ident, gleif, figi = identifier({"adidas": DB_RECORD})
+        identity = ident.identify(None, name="adidas")
+        assert identity.lei == DB_LEI
+        assert identity.sources == ("GLEIF",)
+        assert figi.asked == []
+        assert any("podle názvu, ne podle ISIN" in note for note in identity.notes)
+        assert "(podle názvu)" in identity.evidence[0].title
+
+    def test_an_isin_wins_over_the_name(self) -> None:
+        ident, gleif, _ = identifier({DB_ISIN: DB_RECORD})
+        ident.identify(DB_ISIN, name="adidas")
+        assert gleif.asked == [DB_ISIN]
+
+    def test_no_match_tells_what_to_type_instead(self) -> None:
+        ident, _, _ = identifier({})
+        identity = ident.identify(None, name="Nordkap Funding B.V.")
+        assert identity.lei is None
+        (note,) = identity.notes
+        assert "není žádný aktivní subjekt s názvem „Nordkap Funding B.V.“" in note
+        assert "celý oficiální název včetně právní formy" in note and "ISIN" in note
+
+    def test_a_tie_asks_for_a_more_specific_name(self) -> None:
+        ident, _, _ = identifier({"OMV": 3})
+        (note,) = ident.identify(None, name="OMV").notes
+        assert "odpovídá v GLEIF 3 různým subjektům" in note
+        assert "upřesněte" in note
+
+    def test_an_outage_is_not_reported_as_no_match(self) -> None:
+        ident, _, _ = identifier({"adidas": SourceUnavailableError("down")})
+        identity = ident.identify(None, name="adidas")
+        assert identity.lei is None
+        assert any("nepodařilo dotázat" in note for note in identity.notes)
+        assert not any("není žádný aktivní subjekt" in note for note in identity.notes)
+
+    @pytest.mark.parametrize("switch", ["gleif_enabled", "gleif_name_match"])
+    def test_the_switches_turn_it_off(self, switch: str) -> None:
+        ident, gleif, _ = identifier({"adidas": DB_RECORD}, **{switch: False})
+        assert ident.identify(None, name="adidas") is NO_IDENTITY
+        assert gleif.asked == []

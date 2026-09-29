@@ -180,6 +180,8 @@ sets them loads fine, because unknown variables are ignored.
 | `GLEIF_MIN_INTERVAL_SECONDS` | `1.0` | Spacing between requests; the published limit is 60/min |
 | `GLEIF_MAX_ATTEMPTS` | `3` | Attempts per request; 429 and 5xx are retried |
 | `GLEIF_FETCH_PARENTS` | `true` | Also read the direct and ultimate parent (two more requests) |
+| `ECB_ENABLED` | `true` | Look the LEI up in the ECB lists of financial institutions (needs `DATABASE_URL`; load with `python -m core.sources.ecb --refresh`) |
+| `GLEIF_NAME_MATCH` | `true` | With no ISIN, take the one active GLEIF entity whose name equals the typed name (legal form aside), flagged for review |
 | `OPENFIGI_ENABLED` | `true` | Describe the instrument through OpenFIGI |
 | `OPENFIGI_BASE_URL` | `https://api.openfigi.com/v3` | Base URL of the mapping API |
 | `OPENFIGI_API_KEY` | empty | Optional free key; raises the limit from 25 to 250 requests/min |

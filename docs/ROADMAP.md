@@ -77,6 +77,26 @@ optional.
    from NACE 99 to 64 for the supranational banks (EIB, EBRD, CEB, ESM) although the GLEIF category says
    international organisation - the register rule reaches the shortlist but not the model's weighing.
    Not done: industries' NACE codes (P4496, too heavy over the Action API).
+3c. **Name-only lookups (29 Sept 2026, from a manual test).** "adidas" and "Adidas AG" typed without an
+   ISIN got no description and a deterministic 46/47: no ISIN meant no LEI, "adidas" exactly matched only
+   the *trademark* item (no article), and "Adidas AG" tied with an empty duplicate item. Two fixes: a tie
+   where exactly one item has a cs/en article takes that one; and with no ISIN the typed name is asked in
+   GLEIF (`GLEIF_NAME_MATCH`, the one active entity so named, legal form aside), whose LEI then finds the
+   article. Live: adidas / Adidas AG → adidas AG, Volkswagen → Volkswagen AG, both described; Nordkap
+   Funding B.V. → none. Flagged "podle názvu, ne podle ISIN". Then "OMV" tied three entities (OMV AG,
+   ÖMV AB, OMV - S.P.A.) - correctly refused - but "OMV AG" did too: long and short legal forms now count
+   as one (AG = Aktiengesellschaft, AB = Aktiebolag, …), and since GLEIF's search needs every word a
+   typed legal form also searches without it. Live: OMV AG, Kommuninvest i Sverige AB, Shell plc,
+   Nokia Oyj, Heineken N.V. all resolve. Not yet deployed.
+3d. **ECB lists of financial institutions (29 Sept 2026).** The GLEIF LEI is looked up in the ECB's MFI,
+   IF, FVC, IC and PF lists (free, EU-wide, 70-88% of rows with a LEI), loaded into Neon's
+   `ecb_institutions` (69,034 LEIs, `python -m core.sources.ecb --refresh`, ~30 s). Membership settles the
+   ESA *family* as a register rule; control stays Q7. Checked: every golden bank, both Amundi MMFs,
+   iShares Core MSCI World (ETF), Bavarian Sky (FVC), Allianz and Munich Re (IC) are listed; the four
+   captive vehicles are not (correct). Open: MO to confirm the category -> family table (MFI "Other
+   Institution", EIB as credit institution, Allianz typed "Reinsurance"); a refresh schedule (GitHub
+   Action with DATABASE_URL as a secret, or by hand monthly); whether `source` should say ECB.
+   Loaded into Neon 29 Sept; code not yet deployed.
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same

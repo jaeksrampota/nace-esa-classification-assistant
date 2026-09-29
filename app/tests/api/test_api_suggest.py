@@ -539,11 +539,15 @@ class TestIsinIdentity:
         assert body["issuer_name"] == "Deutsche Bank AG"
         assert body["identity"]["legal_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
 
-    def test_a_name_lookup_does_not_touch_the_registers(
+    def test_a_name_lookup_asks_gleif_by_name_only(
         self, isin_client: TestClient, calls: list[str]
     ) -> None:
-        isin_client.post("/suggest", data={"name": "Nordkap Funding B.V."})
-        assert calls == []
+        text = isin_client.post("/suggest", data={"name": "Nordkap Funding B.V."}).text
+        # The typed name, then without "B.V." - GLEIF's search needs every word. No OpenFIGI.
+        assert len(calls) == 2
+        assert all("filter%5Bentity.legalName%5D=Nordkap" in call for call in calls)
+        assert "není žádný aktivní subjekt s názvem" in text
+        assert "celý oficiální název včetně právní formy" in text
 
     def test_the_download_carries_the_lei(self, isin_client: TestClient) -> None:
         response = isin_client.get("/suggest.xlsx", params={"isin": self.ISIN})
