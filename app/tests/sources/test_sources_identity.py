@@ -356,3 +356,13 @@ class TestFirdsFallback:
         asked: list[str] = []
         self.ident(lambda isin: asked.append(isin), firds_enabled=False).identify(DB_ISIN)
         assert asked == []
+
+
+def test_an_eu_isin_marks_an_eu_institution() -> None:
+    from core.classify.hints import register_esa_families, register_nace
+
+    sheet = IssuerIdentity(isin="EU000A3K4DY4").fact_sheet()
+    assert "[ISIN_EU]" in sheet
+    assert list(register_nace(sheet)) == ["99"]
+    assert list(register_esa_families(sheet)) == ["ostatni mezinarodni instituce"]
+    assert "[ISIN_EU]" not in IssuerIdentity(isin="XS2754438811").fact_sheet()

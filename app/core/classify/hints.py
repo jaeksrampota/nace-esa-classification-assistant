@@ -508,7 +508,7 @@ class RegisterRule:
 REGISTER_RULES: Final[tuple[RegisterRule, ...]] = (
     RegisterRule("INTERNATIONAL_ORGANIZATION", "99", "GLEIF: international organisation"),
     RegisterRule("RESIDENT_GOVERNMENT_ENTITY", "84", "GLEIF: government entity"),
-    RegisterRule("EU_BODY", "99", "the European Union by legal name"),
+    RegisterRule("ISIN_EU", "99", "ISIN country code EU: an EU institution"),
 )
 
 
@@ -532,7 +532,7 @@ ESA_REGISTER_RULES: Final[tuple[tuple[str, str, str], ...]] = (
     ("ECB_FVC", "ucelove financni instituce pro sekuritizaci aktiv", "ECB list of FVCs"),
     ("ECB_IC", "pojistovaci spolecnosti (ic)", "ECB list of insurance corporations"),
     ("ECB_PF", "penzijni fondy (pf)", "ECB list of pension funds"),
-    ("EU_BODY", "ostatni mezinarodni instituce", "the European Union by legal name"),
+    ("ISIN_EU", "ostatni mezinarodni instituce", "ISIN country code EU: an EU institution"),
 )
 
 

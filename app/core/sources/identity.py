@@ -83,8 +83,16 @@ class IssuerIdentity:
         return self.lei_record.country if self.lei_record is not None else None
 
     def facts(self) -> tuple[str, ...]:
-        """GLEIF facts first, then the instrument's."""
+        """The ISIN's own class, GLEIF facts, the ECB lists, then the instrument's."""
         lines: list[str] = []
+        if self.isin and self.isin.startswith("EU"):
+            # ISO 6166 gives the prefix "EU" only to EU institutions and bodies (the EU,
+            # ESM, EFSF, Euratom). GLEIF files the EU as a GENERAL Belgian public-law body and
+            # OpenFIGI its bonds as Govt, so the identifier is the one structured signal.
+            lines.append(
+                "ISIN má kód země EU, přidělovaný institucím a orgánům Evropské unie "
+                "(EU institution, supranational) [ISIN_EU]."
+            )
         if self.lei_record is not None:
             lines.extend(self.lei_record.facts())
         if self.ecb_entry is not None:

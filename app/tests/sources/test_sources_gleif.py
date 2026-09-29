@@ -455,17 +455,3 @@ class TestBrandsAndBranches:
         ]
         record, _ = self.find("Deutsche Bank Aktiengesellschaft", items)
         assert record is not None and record.lei == "7LTWFZYICNSX8D621K86"
-
-
-def test_the_european_union_is_marked_as_an_eu_body() -> None:
-    from dataclasses import replace
-
-    from core.classify.hints import register_esa_families, register_nace
-
-    record = deutsche_bank().find_by_isin(DB_ISIN)
-    assert record is not None
-    sheet = replace(record, legal_name="European Union").fact_sheet()
-    assert "[EU_BODY]" in sheet
-    assert register_nace(sheet) == {"99": "register: the European Union by legal name"}
-    assert list(register_esa_families(sheet)) == ["ostatni mezinarodni instituce"]
-    assert "[EU_BODY]" not in record.fact_sheet()

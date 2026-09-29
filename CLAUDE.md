@@ -233,8 +233,11 @@ database rows, and the FIRDS LEI fallback. No Vercel Pro; nothing can be checked
   code carries a `register:` reason and the model picked another, the register's code is the
   proposal (`basis="rules"`, `overridden` = the model's code, shown as the first alternative) - the
   EIB was answered 64 from "Bank" in its name. A register *family* (control variants) is never
-  forced. The EU, which GLEIF files as a GENERAL Belgian public-law body, is marked by legal name
-  (`gleif.EU_BODIES` -> `[EU_BODY]` -> NACE 99, ESA `ostatni mezinarodni instituce`).
+  forced. The EU, which GLEIF files as a GENERAL Belgian public-law body and OpenFIGI as Govt, is
+  recognised by its **ISIN country code `EU`** (ISO 6166 reserves it for EU institutions): the
+  fact sheet line `[ISIN_EU]` -> NACE 99, ESA `ostatni mezinarodni instituce`. **Rules come from
+  structured register data (identifiers, categories, list membership), never from one issuer's
+  name** - the owner's rule, 29 Sept 2026.
 - **Register rules outrank keywords** (`hints.REGISTER_RULES`): GLEIF
   `RESIDENT_GOVERNMENT_ENTITY` → NACE 84, `INTERNATIONAL_ORGANIZATION` → 99, matched on the
   bracketed code so only the register can fire them. "European Investment Bank" says bank; the

@@ -111,6 +111,9 @@ optional.
    -> S.126) and shipping keywords, a "rezident ČR" warning for Czech issuers, and "SOCIETA' PER AZIONI"
    = S.p.A.: ESA top-3 38 -> 44/46, NACE top-1 36 -> 40/48. Left for the model: non-EU banks whose article
    mentions insurance (UBS, HSBC -> insurer family), lexical noise in NACE (Philips, Microsoft -> 94).
+   Then: a register that settles one code outranks the model (EIB 64 -> 99), and the EU (GLEIF: GENERAL,
+   BE; OpenFIGI: Govt) is recognised by its ISIN country code `EU` (ISO 6166, EU institutions only) -
+   the owner rejected a rule on the EU's name: rules come from structured data, never one issuer's name.
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same

@@ -58,13 +58,6 @@ LOGGER = logging.getLogger(__name__)
 #: Records read per name search; the exact match is near the top, the rest are subsidiaries.
 NAME_SEARCH_SIZE: Final[str] = "50"
 
-#: The EU itself, by folded legal name: GLEIF files it as category GENERAL, legal form
-#: "Legal Entity of Public Law", jurisdiction BE - nothing structured says supranational,
-#: and OpenFIGI's Govt sector made it a central government (84 / 2003110).
-EU_BODIES: Final[frozenset[str]] = frozenset(
-    {"europeanunion", "europeanatomicenergycommunity", "evropskaunie"}
-)
-
 #: Human-readable record page, the citable form of a LEI (the API URL is JSON).
 RECORD_PAGE: Final[str] = "https://search.gleif.org/#/record/{lei}"
 
@@ -226,11 +219,6 @@ class LeiRecord:
             status.append(f"registrace LEI {self.registration_status}")
         if status:
             lines.append("Stav: " + ", ".join(status) + ".")
-        if fold(self.legal_name or "") in EU_BODIES:
-            lines.append(
-                "Podle názvu instituce Evropské unie, ne vláda státu "
-                "(EU institution, supranational) [EU_BODY]."
-            )
         lines.extend(self._parent_facts())
         return tuple(lines)
 
