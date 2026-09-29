@@ -53,9 +53,9 @@ The original build steps are history now; the plan from here is the roadmap's ep
 
 | Step | Scope | Status |
 |---|---|---|
-| 1 | Codebook loaders + versioning + startup consistency check; IČO/ISIN identifiers; settings | **done** |
+| 1 | Codebook loaders + versioning + startup consistency check; ISIN identifier; settings | **done** |
 | 2 | Audit log; the DWS adapter, ARES fallback, resolver and CLI of this step were Tool 2's | audit **done**; the rest removed in PR #5 |
-| 3 | Batch xlsx in/out with messy-input tolerance (`core/batch`, `core/export`) | reader and writer **done**; the Tool 2 batch runner removed in PR #5 |
+| 3 | Result xlsx out (`core/export`) | writer **done**; the batch reader and runner removed (E6 rewrites the reader when it comes) |
 | 4 | Single-lookup API + server-rendered UI (Jinja2 + htmx) | **done** (Tool 1) |
 | 5 | Deterministic classifier: RES ESA sector -> BA0036 ID, RES 2-digit NACE -> OKEC_NACE2 ID | dropped with Tool 2; roadmap E4 adds a rule table for foreign issuers |
 | 6 | LLM classifier for foreign issuers (structured selection from a candidate list) | **done**; on in production since 23 Sept 2026 (E9) |
@@ -70,7 +70,7 @@ Everything lives under `app/` (mounted as `/app` in the container later).
 ```
 app/
   core/
-    identifiers/    ico.py (8 digits, mod-11; for batch/reader.py), isin.py (format + Luhn) [step 1]
+    identifiers/    isin.py (format + Luhn)                                                  [step 1]
     codebooks/      xlsx reader, loaders, models, versioning, consistency check, CLI       [step 1]
                     blob.py (the four files from a private Vercel Blob store)              [E1]
     probe.py        the /probe checks: one fixed request per register, runtime facts       [E1]
@@ -84,7 +84,6 @@ app/
                     prompts.py, provider.py, llm.py, cache.py (the model call)               [step 6]
                     budget.py (limits, usage ledger), usage_report.py (ledger as Excel)       [E9]
     export/         columns.py (the suggestion row), xlsx.py (Subjects + Run sheets)        [step 3]
-    batch/          reader.py (messy xlsx in; roadmap E6 reuses it)                         [step 3]
   api/              FastAPI: GET /, POST /suggest, POST /api/suggest, /suggest.xlsx         [step 4]
                     /health, /probe; lazy codebook loading, 503 when unavailable             [E1]
   ui/               templates/suggest.html (generated from prototype/suggest.html)          [step 4]
@@ -278,15 +277,6 @@ normalised rows instead.
 
 ## Identifiers (`core/identifiers`)
 
-- `normalize_ico(value)` accepts text, integers and floats as they come out of Excel:
-  whitespace (including non-breaking spaces) is removed, `1350.0` and `1.35E3`-style
-  artefacts are resolved exactly, the result is zero-padded to 8 digits (more than 8 digits,
-  including surplus leading zeros, is rejected as `too_long`) and validated with
-  the mod-11 checksum (weights 8..2, check digit `(11 - sum mod 11) mod 10`). Failures raise
-  `InvalidIcoError` with a machine-readable `reason`. A `CZ`-prefixed DIČ is rejected unless
-  `allow_dic_prefix=True`. `is_valid_ico()` and `try_normalize_ico()` never raise. The
-  suggester never sees an IČO: this half serves the batch reader (`core/batch/reader.py`),
-  which recognises IČO columns until roadmap E6 generalises it to ISIN and name columns.
 - `normalize_isin(value)` uppercases, strips whitespace, checks the ISO 6166 layout
   (`^[A-Z]{2}[A-Z0-9]{9}[0-9]$`) and the Luhn checksum over the letter-expanded string.
   `isin_country_code()` returns the two-letter prefix. For both identifiers any non-string,
@@ -363,31 +353,7 @@ calls recorded before users were kept are `unknown`. With `DATABASE_URL` the led
 central database (roadmap D4), so production spend per user is recorded there since
 24 Sept 2026 (evening); before that, Vercel kept no ledger.
 
-## Batch xlsx in/out (`core/batch`, `core/export`)
-
-Two halves outlived the Tool 2 batch runner (removed in PR #5): the reader, which roadmap
-E6 reuses for the Tool 1 batch and which nothing in the app calls yet, and the writer behind
-the Tool 1 download (`GET /suggest.xlsx`).
-
-### Reading input nobody cleaned up
-
-The reader assumes almost nothing: the header may sit under title rows or be missing, the
-IČO and name may be in separate columns or mixed in one, IČOs arrive as numbers with their
-leading zeros eaten by Excel (`177041`) or spaced by hand (`00 177 041`), and rows are blank
-or duplicated. Header matching is case- and accent-insensitive (`ico` = `IČO` = `Ičo`) and
-accepts a suffix (`IČO klienta (RES)`).
-
-Two decisions worth knowing:
-
-- **A malformed IČO is never silently replaced by the name column.** The row keeps the IČO
-  as its identifier, with a note saying so, so the error surfaces wherever the rows are
-  looked up (nothing looks them up until E6). Falling back to the name would return data
-  for a *different* company than the sheet names - the one error a reviewer could not catch.
-- **When no header is recognised, row 1 is kept as data.** A stray junk row then shows up as
-  an invalid identifier instead of vanishing; discarding a row that turned out to hold a
-  real company would be silent data loss.
-
-### The result workbook
+## The result workbook (`core/export`)
 
 One row per issuer, with the columns defined once in `core/export/columns.py`
 (`SUGGESTION_COLUMNS`) and shared with the `row` object of `POST /api/suggest`: `IN_isin` and
@@ -825,7 +791,7 @@ daily budget is 0 (no usage ledger), so that cap is the backstop.
 ## Development notes
 
 - Lint and format with ruff: `ruff check .` and `ruff format .` from `app/`.
-- Test module basenames are unique across `tests/` (`test_ico.py`, `test_isin.py`,
+- Test module basenames are unique across `tests/` (`test_isin.py`,
   `test_codebooks_*.py`, `test_sources_*.py`, `test_api_*.py`, `test_settings.py`,
   `test_audit.py`, `test_probe.py`, `test_vercel_config.py`,
   `test_suggest.py`) because

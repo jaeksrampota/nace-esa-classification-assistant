@@ -124,6 +124,7 @@ class LlmClassifier:
             codebook_version=self._codebook_version,
             model=self._provider.model,
             prompt_version=PROMPT_VERSION,
+            candidate_codes=candidates.codes,
         )
         cached = self._cache.get(key)
         if cached is not None:

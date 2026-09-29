@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date
 
 from core.classify.budget import UsageRecord
 from core.classify.usage_report import CallCost, cost_of
@@ -231,10 +231,6 @@ def parse_day(text: str | None) -> date | None:
         return None
 
 
-def day_start(day: date) -> datetime:
-    return datetime.combine(day, time.min, tzinfo=UTC)
-
-
 __all__ = [
     "MAX_ROWS",
     "Bucket",
@@ -242,7 +238,6 @@ __all__ = [
     "LedgerView",
     "ReportFilter",
     "ReportsView",
-    "day_start",
     "ledger_view",
     "parse_day",
     "reports_view",

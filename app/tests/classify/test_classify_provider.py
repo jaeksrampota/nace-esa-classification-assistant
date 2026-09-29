@@ -332,12 +332,16 @@ class TestCacheKey:
             "codebook_version": "cb-1",
             "model": "m1",
             "prompt_version": "v1",
+            "candidate_codes": ("64", "66"),
         }
         args.update(overrides)
         return cache_key(**args)
 
     def test_same_inputs_same_key(self) -> None:
         assert self.base() == self.base()
+
+    def test_shortlist_order_does_not_matter(self) -> None:
+        assert self.base(candidate_codes=("66", "64")) == self.base()
 
     def test_name_is_normalised(self) -> None:
         assert self.base(issuer_name="  NORDKAP   funding b.v. ") == self.base()
@@ -350,6 +354,7 @@ class TestCacheKey:
             {"prompt_version": "v2"},
             {"description": "something else"},
             {"kind": "ESA"},
+            {"candidate_codes": ("64", "66", "52")},
         ],
     )
     def test_anything_that_changes_the_answer_changes_the_key(self, change: dict) -> None:

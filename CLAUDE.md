@@ -44,14 +44,14 @@ Never scrape `apl.czso.cz` or `or.justice.cz`.
 ## Layout (everything under `/app`)
 
 ```
-core/identifiers  ico.py (mod-11; batch reader only), isin.py
+core/identifiers  isin.py
 core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), web.py, wikimedia.py,
                   names.py (name matching), ecb.py (ECB lists of financial institutions),
                   firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping)
 core/codebooks    loaders, versioning, consistency; blob.py (private Vercel Blob)
 core/classify     candidates.py (pre-filter), hints.py, llm.py, proposal.py, golden.py,
                   budget.py (limits, usage ledger), usage_report.py (the ledger as Excel)
-core/export       columns.py (the row), xlsx.py     core/batch reader.py (E6 reuses)
+core/export       columns.py (the row), xlsx.py
 core/probe.py     the /probe register checks     core/auth.py  sign-in (users, cookie)
 core/reports.py   error reports (the button): request + result row + note, to the db, a dir or Blob
 core/db.py        the central Postgres (D4): ledger, cache, audit events, reports; SQLite engine for tests
@@ -333,10 +333,6 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     keeps every column. On the page every shortlisted code has a "vybrat do exportu" radio
     (proposal pre-selected, `form="download"`, no JS); `/suggest.xlsx?nace=&esa=` takes the
     choice, refuses a code off the shortlist (400) and records "NACE/ESA vybral" on Run.
-- **Batch** (`batch/reader.py`): unused until E6. Two rules that look like edge cases but are the
-  point: a malformed IČO is looked up **as given** rather than falling back to the name column (a
-  wrong IČO must surface, not silently return another company), and with no recognised header,
-  row 1 is data.
 - **Sign-in** (`core/auth.py`, roadmap E2/D5): optional — `APP_PASSWORD_HASH` set turns it on;
   **on in production since 24 Sept 2026** (both variables Sensitive, Production only; rollback:
   delete the hash and redeploy — after turning Vercel Authentication back on, or the site is open).

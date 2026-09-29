@@ -53,8 +53,13 @@ def cache_key(
     codebook_version: str | None,
     model: str,
     prompt_version: str,
+    candidate_codes: tuple[str, ...] = (),
 ) -> str:
-    """Stable key over everything that can change the answer."""
+    """Stable key over everything that can change the answer.
+
+    The shortlist is in it: the model chooses from it, so a hint-table edit that changes
+    the shortlist must be a fresh call, not yesterday's pick (29 Sept 2026).
+    """
     normalized_name = " ".join((issuer_name or "").split()).casefold()
     normalized_description = " ".join(description.split()).casefold()
     # JSON rather than a delimiter join: no separator can collide with a value, and the
@@ -67,6 +72,7 @@ def cache_key(
             codebook_version or "",
             model,
             prompt_version,
+            sorted(candidate_codes),
         ],
         ensure_ascii=False,
     )

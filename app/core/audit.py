@@ -40,10 +40,6 @@ def set_audit_sink(sink: AuditSink | None) -> None:
     _SINK = sink
 
 
-def current_audit_sink() -> AuditSink | None:
-    return _SINK
-
-
 def _keep(event: dict[str, object]) -> None:
     """Hand the event to the sink; a sink failure is logged and never fails the request."""
     if _SINK is None:

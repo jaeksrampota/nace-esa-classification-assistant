@@ -294,7 +294,7 @@ app/
   vercel.json · .vercelignore · .python-version · [tool.vercel]/[tool.uv] in pyproject.toml   (E1, §4)
   core/
     suggest.py           the pipeline: request → identity → evidence → shortlist → classifier → IssuerSuggestion
-    identifiers/         isin.py (ISO 6166 + Luhn) · ico.py (IČO, only for batch/reader.py until E6)
+    identifiers/         isin.py (ISO 6166 + Luhn)
     codebooks/           xlsx reader, loaders, models (CodebookSet), normalize, consistency check, versioning
                          blob.py (the four files from a private Vercel Blob store, E1)
     probe.py             the /probe checks: one fixed request per register, status per failure mode (E1)
@@ -305,7 +305,6 @@ app/
                          prompts.py · provider.py · llm.py · cache.py · budget.py (LLM path, off)
                          golden.py (cases, recall@12, top-1) · golden_fixtures.py (register answers: capture / replay)
     export/              columns.py (the suggestion row contract) · xlsx.py (Subjects + Run sheets)
-    batch/               reader.py (messy xlsx in — E6 reuses it; nothing calls it yet)
     audit.py             one log line per lookup: identifier, time, user, sources, outcome — never content
   tests/                 1328 passed / 19 skipped (skips = tests needing the real xlsx; 1347 with them); fixtures are trimmed live payloads
     golden/              cases.json (10 fictional trap cases + 36 real issuers, all provisional) · identity.json
@@ -476,7 +475,7 @@ explains *why*, then wait for a go-ahead.
    lines, their tests and README/CLAUDE sections. **Keep** `core/batch/reader.py` (E6 reuses it),
    `core/export/xlsx.py`, `core/audit.py`, `core/identifiers/isin.py`. Drop `pandas` from `pyproject.toml`.
    Expect roughly −4 000 lines; the suite must stay green. *Done in PR #5 (−4 467 / +848 lines, 963 passed);
-   `core/identifiers/ico.py` stayed, because the reader needs it until E6 (D7).*
+   `core/identifiers/ico.py` stayed for the reader; both removed on 29 Sept 2026 as unused — E6 writes its reader fresh.*
 4. Port `docs/questions.md` from the design source as the answer slots in §7 here (done in this file).
 **DoD:** `python -m pytest` green with Tool 2 gone; no `pandas`; README/CLAUDE describe one tool; nothing
 bank-internal in the repository.
@@ -679,7 +678,7 @@ suggestions, CTS IDs and a *liší se od CTS* flag.
 **Design (serverless):**
 ```
 POST /batch/parse      xlsx/csv in (≤ 4.5 MB) → JSON rows out (ISIN, název, popis, current NACE CTS ID,
-                       current ESA CTS ID — reader.py generalised with these header aliases); nothing stored
+                       current ESA CTS ID — a reader with these header aliases; nothing stored
 POST /batch/rows       ≤ 5 rows in → suggestion rows out (each row = one pipeline run, ≈ 5 s worst case);
                        the browser (htmx) posts chunks sequentially and appends the rendered rows to the page
 POST /batch.xlsx       the accumulated JSON rows in → workbook out (SUGGESTION_COLUMNS + IN_* echo +
@@ -835,7 +834,7 @@ E3–E5 raise deterministic accuracy and coverage. E6–E7 make it the daily too
 | `data/reference/esa2010_sectors_cz_ciss.csv`, `cnb_ba0036_esa95_items.csv` | nothing — the real codebooks supersede them | — | drop |
 | `src/main/isin.py` `COUNTRY_CS` (Czech names of ISIN prefixes, XS = Euroclear/Clearstream) | a small map for the issuer meta line ("předčíslí DE – Německo") | E3 | nice-to-have |
 | `lei-lookup-tool` name matcher | `core/sources/match.py` | E3 | port the logic |
-| Batch xlsx design (design §6.3): upload → enriched sheet → *liší se od CTS* | E6 as chunked serverless flow on `batch/reader.py` + `export/xlsx.py` | E6 | port the idea |
+| Batch xlsx design (design §6.3): upload → enriched sheet → *liší se od CTS* | E6 as chunked serverless flow on a fresh reader + `export/xlsx.py` | E6 | port the idea |
 | Confirm/history "memory" (design §3, §7) | Postgres `confirmed_mappings`, `/confirm`, `/history` | E7 | port the idea |
 | `docs/questions.md` Q1–Q12 | §7 below | E0 | ported |
 | CodeNOW Flask scaffold, `/health` shape, pinned `requirements.txt` for the pylint gate, dictionary browser | nothing | — | not needed on Vercel / superseded |

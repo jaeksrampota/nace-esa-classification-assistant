@@ -101,6 +101,9 @@ class TestHintTable:
             ("manufacturer of motor vehicles", "29"),
             ("výroba motorových vozidel", "29"),
             ("chain of supermarkets", "47"),
+            ("mobilní operátor a poskytovatel internetu", "61"),
+            ("provoz námořního přístavu", "52"),
+            ("správa investičních fondů a portfolií", "66"),
         ],
     )
     def test_triggers_fire_in_both_languages(self, text: str, division: str) -> None:
@@ -250,6 +253,14 @@ class TestRegisterRules:
         for rule in REGISTER_RULES:
             assert len(rule.nace) == 2 and rule.nace.isdigit()
             assert rule.note
+
+
+def test_fund_management_is_a_financial_auxiliary() -> None:
+    from core.classify.hints import hinted_esa_families
+
+    assert "pomocne financni instituce" in hinted_esa_families(
+        "správa investičních fondů a portfolií pro institucionální klienty"
+    )
 
 
 def test_market_infrastructure_is_a_financial_auxiliary() -> None:
