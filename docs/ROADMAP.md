@@ -22,7 +22,7 @@ shortlists — NACE and ESA, every candidate with its CTS ID — come out, and t
 off or declines, when a rule decided it (a GLEIF category or a keyword); a person confirms. It runs on
 Vercel (the production domain public since 24 Sept 2026, gated by the app's own login; the real codebooks in the
 private Blob store, `DE0005140008` end
-to end in about 12 s with the model; `main` at `5a9ecac` is deployed since 29 Sept 2026 (the central database since the evening of 24 Sept), and the app's own login is on since that morning). It is not gold-plated, and
+to end in about 12 s with the model; `main` at `055f717` is deployed since 29 Sept 2026 (the central database since the evening of 24 Sept), and the app's own login is on since that morning). It is not gold-plated, and
 should not be: what follows is the short list that separates "works for Jakub" from "MO uses it", then what is
 optional.
 
@@ -105,7 +105,8 @@ optional.
    "pod zahraniční kontrolou". Also new: choosing any shortlisted code on the page, the six-column export,
    and an ISIN/name mismatch warning. Open: the model declines ESA for most non-financial issuers when
    ownership is unstated (Q7); GLEIF files the EU as a government (84, not 99); EBRD 64 vs 99; model-off
-   keyword misfires (Airbus 41, BASF 06, DHL 61).
+   keyword misfires (Airbus 41, BASF 06, DHL 61). The EU by its ISIN prefix `EU` (99) came after. All of it
+   deployed 29 Sept 2026 (`main` `055f717`).
    A second run of 50 new cases then removed the "holding" hint altogether (Czech Wikipedia calls E.ON,
    Renault, Ferrari, Carrefour, ČEZ a "holdingová společnost"), added market infrastructure (Deutsche Börse
    -> S.126) and shipping keywords, a "rezident ČR" warning for Czech issuers, and "SOCIETA' PER AZIONI"
@@ -134,7 +135,7 @@ optional.
    reports land in `/tmp` and vanish. Reports are content: never in git, never in a log line; the audit log
    records only who reported which identifier. Review with `python -m core.reports --list|--xlsx` (the database
    when `DATABASE_URL` is set) or `/admin`. This is the first piece of D4 that MO can act on.
-4. **E5-lite: the FIRDS LEI fallback. Built 29 Sept 2026 (`core/sources/firds.py`, see 3f).** GLEIF maps 25 of 36 golden ISINs; the misses (Eurobond, LU/IE funds) include
+4. **E5-lite: the FIRDS LEI fallback. Built 29 Sept 2026 (`core/sources/firds.py`, see 3f); deployed the same day (`main` `055f717`).** GLEIF maps 25 of 36 golden ISINs; the misses (Eurobond, LU/IE funds) include
    all four captive vehicles, the core ESA trap. ESMA FIRDS returns the issuer LEI for them; `/probe` already
    shows the host reachable from Vercel.
 5. ~~**Have someone with CTS access check the 36 real golden cases**~~ **Dropped (Jakub, 23 Sept 2026):** nothing
@@ -578,6 +579,11 @@ the developer page is on behind the MO sign-in, with its own password.
 no new env vars (`GLEIF_NAME_MATCH`, `ECB_ENABLED` default on). Verified by curl: `/api/version` at `5a9ecac`,
 `/health` 200 with `database: postgres …` and `reports: db` (deployment `dpl_FfrnXsNGtVLq5unYb25BNrfvHqfx`).
 Not yet verified: a signed-in name-only lookup.
+**Redeployed again on 29 Sept 2026**, `main` `055f717` (the acceptance-run fixes, the FIRDS fallback, code
+choice on the page, the six-column export, the EU by ISIN prefix), same way; no new env vars (`FIRDS_ENABLED`
+defaults on). Verified by curl: `/api/version` at `055f717`, `/health` 200 with `database: postgres …` and
+`reports: db` (deployment `dpl_3njLfgrmGtWXKYQQAY2t3pLFKuwB`). Not yet verified: a signed-in lookup reaching
+FIRDS (`/health` does not show it).
 **Depends on:** no epic (E0.2 was dropped, D2); D1 confirmed. Before real data: the four codebook files from the
 repository owner (perhaps in `tdzian39/rb_files`, where Jakub has a pending invite), uploaded with
 `vercel blob put` as in `app/README.md`.
