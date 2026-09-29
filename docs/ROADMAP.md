@@ -120,8 +120,8 @@ optional.
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same
    evening** (`main` `1ec4e7b`): production's `/health` shows `database: postgres …` (the Neon pooler) and
    `reports: db`. Left: a signed-in production lookup to confirm the rows arrive. Then, if wanted, raise
-   `LLM_DAILY_TOKEN_BUDGET` above 0 — but only once an unreadable ledger refuses to spend: today both ledgers'
-   `totals_since` return zero on a read error, so a database outage would let every call through.
+   `LLM_DAILY_TOKEN_BUDGET` above 0 — safe since 29 Sept 2026: an unreadable ledger now refuses to spend
+   (`totals_since` returns `None`, never zero), so a database outage makes the model abstain.
 3e. **The developer page (24 Sept 2026).** `/admin`: the priced cost ledger and the complaints, behind its own
    password (`ADMIN_PASSWORD_HASH`, on top of the MO sign-in). ~~**Left: set `ADMIN_PASSWORD_HASH` on
    Vercel**~~ **On in production since 24 Sept 2026 (evening)**: the hash is a Sensitive, Production-only

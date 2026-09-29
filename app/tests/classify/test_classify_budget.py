@@ -20,7 +20,6 @@ from core.classify.budget import (
     BudgetExceededError,
     NullLedger,
     SqliteLedger,
-    UsageTotals,
     build_ledger,
     spending_as,
 )
@@ -138,6 +137,16 @@ class TestDailyBudget:
             provider.complete(prompt())
         assert inner.calls == []
 
+    def test_an_unreadable_ledger_fails_closed(self, tmp_path: Path) -> None:
+        """A read error is unknown usage, not zero: it must not let every call through."""
+        ledger = SqliteLedger(tmp_path / "usage.sqlite3")
+        (tmp_path / "usage.sqlite3").write_bytes(b"not a database")
+        inner = StubLlmProvider(ANSWER)
+        provider = BudgetedProvider(inner, budget=Budget(daily_token_budget=100_000), ledger=ledger)
+        with pytest.raises(BudgetExceededError, match="could not be read"):
+            provider.complete(prompt())
+        assert inner.calls == []
+
     def test_no_daily_budget_and_no_ledger_is_fine(self) -> None:
         """Explicitly switching the cap off is a decision, not an accident."""
         provider = BudgetedProvider(
@@ -246,7 +255,7 @@ class TestLedger:
         blocker.write_text("not a directory", encoding="utf-8")
         ledger = SqliteLedger(blocker / "nested" / "usage.sqlite3")
         assert not ledger.usable
-        assert ledger.today() == UsageTotals()
+        assert ledger.today() is None
 
     def test_build_ledger_honours_the_off_switch(self, tmp_path: Path) -> None:
         assert isinstance(build_ledger(None), NullLedger)

@@ -152,7 +152,9 @@ class UsageRecorder(Protocol):
         user: str | None = None,
     ) -> None: ...
 
-    def totals_since(self, since: datetime) -> UsageTotals: ...
+    #: None when usage could not be read - unknown, never zero, or a daily budget would
+    #: let every call through while the ledger is down.
+    def totals_since(self, since: datetime) -> UsageTotals | None: ...
 
 
 class NullLedger:
@@ -250,9 +252,9 @@ class SqliteLedger:
         except sqlite3.Error as exc:
             LOGGER.warning("could not record usage: %s", exc)
 
-    def totals_since(self, since: datetime) -> UsageTotals:
+    def totals_since(self, since: datetime) -> UsageTotals | None:
         if not self.usable:
-            return UsageTotals()
+            return None
         try:
             with self._connect() as connection:
                 row = connection.execute(
@@ -262,13 +264,13 @@ class SqliteLedger:
                 ).fetchone()
         except sqlite3.Error as exc:
             LOGGER.warning("could not read usage: %s", exc)
-            return UsageTotals()
+            return None
         return UsageTotals(
             calls=int(row[0]), prompt_tokens=int(row[1]), completion_tokens=int(row[2])
         )
 
-    def today(self) -> UsageTotals:
-        """Usage since midnight UTC."""
+    def today(self) -> UsageTotals | None:
+        """Usage since midnight UTC; None when it could not be read."""
         start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         return self.totals_since(start)
 
@@ -381,9 +383,15 @@ class BudgetedProvider:
                     "a daily token budget is configured but usage cannot be recorded, so it "
                     "cannot be enforced; fix LLM_USAGE_PATH or set LLM_DAILY_TOKEN_BUDGET=0"
                 )
-            spent = self._ledger.totals_since(
+            totals = self._ledger.totals_since(
                 datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-            ).total_tokens
+            )
+            if totals is None:
+                raise BudgetExceededError(
+                    "today's usage could not be read, so the daily token budget cannot be "
+                    "enforced; the model is not called until the ledger answers again"
+                )
+            spent = totals.total_tokens
             if spent + estimated > self._budget.daily_token_budget:
                 raise BudgetExceededError(
                     f"today's usage ({spent:,} tokens) plus this request (~{estimated:,}) "

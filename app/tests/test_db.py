@@ -109,7 +109,7 @@ class TestLedger:
         with caplog.at_level(logging.WARNING):
             DatabaseLedger(db).record(model="m", kind="NACE", prompt_tokens=1, completion_tokens=1)
         assert "could not record usage" in caplog.text
-        assert DatabaseLedger(db).today().calls == 0
+        assert DatabaseLedger(db).today() is None, "an unreadable ledger is unknown, not zero"
 
     def test_records_raise_when_unreadable(self, db: Database, monkeypatch) -> None:
         monkeypatch.setattr(db, "_open", lambda: (_ for _ in ()).throw(OSError("down")))

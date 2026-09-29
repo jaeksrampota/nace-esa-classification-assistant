@@ -309,10 +309,10 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     recorded", never zero. Without `DATABASE_URL` it knows only this machine's calls; with it,
     every device's, production's included (since 24 Sept 2026). Before that, production spend
     is only on the provider's usage page.
-  * **A daily budget fails open on a read error**: both ledgers' `totals_since` return zero
-    spend when the read fails, so with `LLM_DAILY_TOKEN_BUDGET > 0` a database outage lets
-    every call through (only a ledger unusable from startup refuses). Fix before raising the
-    budget above 0 in production.
+  * **A daily budget fails closed on a read error** (29 Sept 2026): both ledgers'
+    `totals_since` return `None` (unknown, never zero) when the read fails, and
+    `BudgetedProvider` then refuses the call, so with `LLM_DAILY_TOKEN_BUDGET > 0` a database
+    outage makes the model abstain and the rules' proposal stands. Production's budget is 0.
 - **Golden set** (`tests/golden/`): a case counts only when `verified_by` is set; verified and
   provisional are scored separately and **no accuracy may be quoted from provisional cases**.
   All are provisional: 10 fictional traps plus 36 real issuers built from public sources (Q8).

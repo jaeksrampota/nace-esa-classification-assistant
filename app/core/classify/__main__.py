@@ -171,6 +171,9 @@ def _print_usage(settings) -> None:
         print("         LLM_DAILY_TOKEN_BUDGET=0 says the cap is not wanted.")
         return
     today = ledger.today()
+    if today is None:
+        print("today : usage could not be read; with a daily budget every model call is refused")
+        return
     print(f"today : {today.describe()}")
     if budget.daily_token_budget > 0:
         left = max(0, budget.daily_token_budget - today.total_tokens)

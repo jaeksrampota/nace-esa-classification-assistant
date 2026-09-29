@@ -302,7 +302,7 @@ class DatabaseLedger:
         except DatabaseError as exc:
             LOGGER.warning("could not record usage: %s", exc)
 
-    def totals_since(self, since: datetime) -> UsageTotals:
+    def totals_since(self, since: datetime) -> UsageTotals | None:
         from core.classify.budget import UsageTotals
 
         try:
@@ -313,12 +313,12 @@ class DatabaseLedger:
             )
         except DatabaseError as exc:
             LOGGER.warning("could not read usage: %s", exc)
-            return UsageTotals()
+            return None
         return UsageTotals(
             calls=int(row[0]), prompt_tokens=int(row[1]), completion_tokens=int(row[2])
         )
 
-    def today(self) -> UsageTotals:
+    def today(self) -> UsageTotals | None:
         start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         return self.totals_since(start)
 
