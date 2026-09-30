@@ -16,8 +16,9 @@ taking DWS and ARES with it — nothing here reads them. **The plan, every decis
 open question live in `docs/ROADMAP.md`: read it after this file and keep both in step.**
 
 Sources, in order: **GLEIF** (`api.gleif.org`) + **OpenFIGI** (`api.openfigi.com`) for an
-issuer given by ISIN; **Wikidata/Wikipedia by that LEI**, then **web search**, for activity
-descriptions of foreign issuers only.
+issuer given by ISIN; **Wikidata/Wikipedia by that LEI or by the issuer's name**, then the
+**model's own web search** (every lookup since 30 Sept 2026), for activity descriptions of
+foreign issuers only.
 Never scrape `apl.czso.cz` or `or.justice.cz`.
 
 ## Codebooks (xlsx; from a private Vercel Blob store in deployment, roadmap D3)
@@ -47,7 +48,8 @@ Never scrape `apl.czso.cz` or `or.justice.cz`.
 core/identifiers  isin.py
 core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), web.py, wikimedia.py,
                   names.py (name matching), ecb.py (ECB lists of financial institutions),
-                  firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping)
+                  firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping),
+                  llm_web.py (the model's web search for the description)
 core/codebooks    loaders, versioning, consistency; blob.py (private Vercel Blob)
 core/classify     candidates.py (pre-filter), hints.py, llm.py, proposal.py, golden.py,
                   budget.py (limits, usage ledger), usage_report.py (the ledger as Excel)
@@ -163,8 +165,11 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
   * `fact_sheet()` is Czech prose whose parentheses carry the **English** words the hint table
     reacts to, so a GLEIF category reaches the shortlist with no new mechanism. It is appended
     to the description the pre-filter scores and the model reads.
-  * The legal name is the web search query (an ISIN never was one); what MO typed still wins as
-    the displayed name.
+  * The legal name is the web search query (an ISIN never was one). **The name shown and
+    exported is the one found** (`suggest.issuer_name_of`, 30 Sept 2026, Jakub: "find the
+    issuer's name"): GLEIF's legal name, then the name the model's web search found, then what
+    MO typed, then OpenFIGI's market name; a typed name that differs is shown under it
+    (`typed_name_apart`, "zadaný název: …"). Until then the typed name won.
   * **With no ISIN, the typed name is asked in GLEIF** (`GLEIF_NAME_MATCH`, 29 Sept 2026):
     `filter[entity.legalName]` is a word search ("adidas" → adidas AG + 30 subsidiaries), so
     only an ACTIVE entity whose name *is* the query counts (`names.fold`), else the same base
@@ -219,7 +224,30 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     deadline (a `SourceUnavailableError`, noted, never "not found"). Hosts `www.wikidata.org`,
     `{cs,en}.wikipedia.org`, in `/probe`'s default set while `WIKIMEDIA_ENABLED`.
   * Test helpers not about it set `wikimedia_enabled=False`, or a LEI in a fixture reaches the
-    real Wikimedia.
+    real Wikimedia (a name reaches the real Wikipedia search too, since 30 Sept 2026).
+- **The model's web search** (`llm_web.py`, 30 Sept 2026, Jakub: "use llm for each"): every
+  lookup with a model asks it to search the web for the issuer - OpenAI's **Responses API**
+  (`POST /responses`) with the `web_search` tool, `tool_choice: "required"`,
+  `filters.blocked_domains` = `BLOCKED_HOSTS`, `include: ["web_search_call.action.sources"]`,
+  `reasoning.effort` `LLM_WEB_REASONING_EFFORT` (low; gpt-5 "minimal" cannot search).
+  `gpt-5.6-luna` lists the tool (model page, 30 Sept 2026). It answers in Czech, "NÁZEV: … /
+  POPIS: …" (activity, kind of institution, seat, group, **who owns or controls it** - Q7) or
+  "NENALEZENO"; `parse_answer` reads it. The sentences follow the typed/Wikipedia description
+  as "Podle webu (vyhledal model …): …", the cited pages join the evidence (a page on a blocked
+  host is dropped), and the name is `IssuerEvidence.found_name`.
+  * One `Prompt` with `kind="WEB"`, `web_search=True` through the classifier's **budgeted
+    provider**, so the ledger records it as `WEB` for the signed-in user; `usage_report` adds
+    `WEB_SEARCH_CALL_USD` (10 USD per 1,000 searches) to those rows. ~0.01 USD a lookup, about
+    ten times the two classification calls, and a third call per lookup: the 200-call cap per
+    instance lasts ~66 lookups.
+  * **Cached** in the classifications table as text (`get_text`/`put_text`, kind `WEB`), key =
+    name + ISIN + LEI + typed text + model + `WEB_PROMPT_VERSION`: the page, the download and a
+    report's re-run read the same text, so the classification cache still hits.
+  * Starts only if a classification call still fits after it (`2 × call_seconds` left before
+    `LOOKUP_DEADLINE_SECONDS`), else a note. Fail-soft: no model = no call and no note
+    (`build_web_search` returns `None`), a failed call = a note. `LLM_WEB_SEARCH=false` turns
+    it off. **Not yet exercised against the live API** (no key off Vercel): check a production
+    lookup for the "Podle webu" paragraph after deploying.
 - **ECB lists** (`ecb.py`, 29 Sept 2026): the LEI from GLEIF is looked up in the ECB's lists of
   financial institutions - MFI (central banks, credit institutions, MMFs, other deposit-takers),
   IF, FVC, IC, PF - loaded into the central database's `ecb_institutions` table by `python -m

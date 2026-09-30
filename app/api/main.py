@@ -1194,10 +1194,24 @@ def _warnings(settings: Settings) -> list[str]:
             "ověření a výběr jsou na vás. (Model se zapne po nastavení LLM_API_KEY.)"
         )
     wikimedia = settings.web_enabled and settings.wikimedia_enabled
-    if not settings.web_search_url and wikimedia:
+    model_web = bool(
+        settings.web_enabled
+        and settings.llm_web_search
+        and settings.llm_enabled
+        and settings.llm_api_key
+    )
+    if wikimedia or model_web:
+        where = " a ".join(
+            part
+            for part, on in (
+                ("na Wikipedii (podle LEI nebo názvu emitenta)", wikimedia),
+                ("na webu vyhledáváním modelem", model_web),
+            )
+            if on
+        )
         warnings.append(
-            "Popis činnosti se dohledá na Wikipedii podle LEI z registru GLEIF, tedy jen pro "
-            "emitenta zadaného ISIN; u ostatních (a kde Wikipedie nic nemá) jej zadejte ručně."
+            f"Popis činnosti nástroj hledá u každého dotazu {where}; popis, který zadáte, má "
+            "přednost a nalezené informace ho jen doplní."
         )
     elif not settings.web_search_url:
         warnings.append(

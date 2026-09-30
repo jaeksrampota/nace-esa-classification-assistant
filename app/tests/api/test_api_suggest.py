@@ -408,8 +408,16 @@ class TestHealth:
 class TestWarnings:
     def test_with_wikimedia_the_banner_says_where_the_description_comes_from(self) -> None:
         warnings = api._warnings(Settings(llm_api_key=None, web_search_url=None))
-        assert any("Wikipedii podle LEI" in warning for warning in warnings)
+        assert any("Wikipedii (podle LEI nebo názvu emitenta)" in warning for warning in warnings)
+        assert not any("vyhledáváním modelem" in warning for warning in warnings)  # no model
         assert not any("WEB_SEARCH_URL" in warning for warning in warnings)
+
+    def test_with_a_model_the_banner_says_it_searches_the_web_too(self) -> None:
+        warnings = api._warnings(Settings(llm_api_key="sk-test", web_search_url=None))
+        assert any(
+            "na Wikipedii (podle LEI nebo názvu emitenta) a na webu vyhledáváním modelem" in w
+            for w in warnings
+        )
 
     def test_without_wikimedia_it_asks_for_a_typed_description(self) -> None:
         warnings = api._warnings(
@@ -593,13 +601,20 @@ class TestIsinIdentity:
             isin_client.post("/suggest", data={"isin": self.ISIN})
         assert any("sources=GLEIF+OPENFIGI+WEB" in record.message for record in caplog.records)
 
-    def test_a_typed_name_still_wins(self, isin_client: TestClient) -> None:
-        """What MO typed is authoritative; the register's spelling is shown as a fact."""
+    def test_the_register_name_is_the_issuer_and_the_typed_one_is_kept(
+        self, isin_client: TestClient
+    ) -> None:
+        """The name found is the output (30 Sept 2026); what MO typed stays in the row."""
         body = isin_client.post(
             "/api/suggest", json={"isin": self.ISIN, "name": "Deutsche Bank AG"}
         ).json()
-        assert body["issuer_name"] == "Deutsche Bank AG"
-        assert body["identity"]["legal_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
+        assert body["issuer_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
+        assert body["row"]["issuer_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
+        assert body["row"]["IN_name"] == "Deutsche Bank AG"
+        page = isin_client.post(
+            "/suggest", data={"isin": self.ISIN, "name": "Deutsche Bank AG"}
+        ).text
+        assert "zadaný název: Deutsche Bank AG" in page
 
     def test_a_name_lookup_asks_gleif_by_name_only(
         self, isin_client: TestClient, calls: list[str]

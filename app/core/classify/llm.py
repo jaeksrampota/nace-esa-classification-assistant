@@ -90,6 +90,16 @@ class LlmClassifier:
     def provider(self) -> LlmProvider:
         return self._provider
 
+    @property
+    def cache(self) -> ClassificationCache:
+        """The answer cache; the web search keeps its findings there too."""
+        return self._cache
+
+    @property
+    def call_seconds(self) -> float:
+        """The longest one model call can take; 0 when there is no call to bound."""
+        return self._call_seconds
+
     # -- public API --------------------------------------------------------------------
 
     def classify(

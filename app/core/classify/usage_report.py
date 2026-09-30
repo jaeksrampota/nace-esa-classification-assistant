@@ -55,6 +55,10 @@ PRICES: Final[dict[str, Price]] = {
 }
 PRICES_SOURCE: Final[str] = "https://developers.openai.com/api/docs/pricing"
 PRICES_CHECKED: Final[date] = date(2026, 9, 23)
+#: What one web search costs on top of its tokens: 10 USD per 1,000 calls, every model
+#: (pricing page, checked 30 Sept 2026). The ledger's ``WEB`` rows are those searches
+#: (:mod:`core.sources.llm_web`); the fee is counted in their input cost.
+WEB_SEARCH_CALL_USD: Final[float] = 0.01
 
 SUMMARY_SHEET: Final[str] = "Summary"
 CALLS_SHEET: Final[str] = "Calls"
@@ -151,9 +155,10 @@ def cost_of(record: UsageRecord) -> CallCost:
         return CallCost(record, None, None, exact=exact)
     cached = min(max(cached or 0, 0), record.prompt_tokens)
     uncached = record.prompt_tokens - cached
+    search_fee = WEB_SEARCH_CALL_USD if record.kind == "WEB" else 0.0
     return CallCost(
         record,
-        input_cost=(uncached * price.input + cached * price.cached_input) / 1_000_000,
+        input_cost=(uncached * price.input + cached * price.cached_input) / 1_000_000 + search_fee,
         output_cost=record.completion_tokens * price.output / 1_000_000,
         exact=exact,
     )
@@ -376,6 +381,13 @@ def _write_prices(sheet: Worksheet) -> None:
         )
         for column, (value, number_format) in enumerate(zip(values, formats, strict=True), 1):
             _put(sheet, row, column, value, number_format)
+    note = sheet.cell(
+        row=len(PRICES) + 3,
+        column=1,
+        value=f"Web search (the WEB rows): {WEB_SEARCH_CALL_USD:.2f} USD per call on top of "
+        "its tokens, counted in the input cost.",
+    )
+    note.font = _NOTE
     _set_widths(sheet, (16, 16, 18, 16, 48, 12))
 
 

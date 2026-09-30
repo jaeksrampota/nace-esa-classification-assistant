@@ -70,6 +70,8 @@ class LlmResponse:
     #: The part of ``prompt_tokens`` the provider served from its prompt cache and bills at
     #: the cached rate; ``None`` when it did not say, which is not the same as none cached.
     cached_prompt_tokens: int | None = None
+    #: ``(url, title)`` of the pages a web-search answer cites; empty for a classification.
+    citations: tuple[tuple[str, str], ...] = ()
 
     @property
     def total_tokens(self) -> int | None:
@@ -132,12 +134,14 @@ class StubLlmProvider:
         prompt_tokens: int | None = 1000,
         completion_tokens: int | None = 80,
         cached_prompt_tokens: int | None = None,
+        citations: tuple[tuple[str, str], ...] = (),
     ) -> None:
         self.model = model
         self._responses = responses
         self._prompt_tokens = prompt_tokens
         self._completion_tokens = completion_tokens
         self._cached_prompt_tokens = cached_prompt_tokens
+        self._citations = citations
         self.calls: list[Prompt] = []
 
     def complete(self, prompt: Prompt) -> LlmResponse:
@@ -157,6 +161,7 @@ class StubLlmProvider:
             prompt_tokens=self._prompt_tokens,
             completion_tokens=self._completion_tokens,
             cached_prompt_tokens=self._cached_prompt_tokens,
+            citations=self._citations if prompt.web_search else (),
         )
 
 
@@ -272,14 +277,44 @@ class OpenAiProvider:
             body["temperature"] = self._settings.llm_temperature
         return body
 
+    def _search_body(self, prompt: Prompt) -> dict[str, Any]:
+        """A Responses API request that makes the model search the web before it answers.
+
+        Shape per OpenAI's web-search guide (developers.openai.com, checked 30 Sept 2026): the
+        ``web_search`` tool, ``filters.blocked_domains`` for the pages it must not use,
+        ``tool_choice: "required"`` so it always searches, and ``include`` asking for every
+        source it consulted. No ``temperature``: the call runs with a reasoning effort, and web
+        search does not work with gpt-5's "minimal". The answer is text, not JSON.
+        """
+        tool: dict[str, Any] = {"type": "web_search", "search_context_size": "low"}
+        if prompt.blocked_domains:
+            tool["filters"] = {"blocked_domains": list(prompt.blocked_domains)}
+        body: dict[str, Any] = {
+            "model": self.model,
+            "instructions": prompt.system,
+            "input": prompt.user,
+            "tools": [tool],
+            "tool_choice": "required",
+            "include": ["web_search_call.action.sources"],
+            "max_output_tokens": self._settings.llm_web_max_output_tokens,
+        }
+        effort = self._settings.llm_web_reasoning_effort
+        if effort:
+            body["reasoning"] = {"effort": effort}
+        return body
+
     def complete(self, prompt: Prompt) -> LlmResponse:
         client = self._ensure_client()
         attempts = max(1, self._settings.llm_max_attempts)
         last_error: Exception | None = None
+        if prompt.web_search:
+            path, body, read = "/responses", self._search_body(prompt), self._read_search
+        else:
+            path, body, read = "/chat/completions", self._body(prompt), self._read
 
         for attempt in range(1, attempts + 1):
             try:
-                response = client.post("/chat/completions", json=self._body(prompt))
+                response = client.post(path, json=body)
             except httpx.TimeoutException as exc:
                 last_error = LlmUnavailableError(f"model call timed out: {exc}")
             except httpx.HTTPError as exc:
@@ -295,7 +330,7 @@ class OpenAiProvider:
                         f"{response.text[:300]}"
                     )
                 else:
-                    return self._read(response)
+                    return read(response)
             if attempt < attempts:
                 LOGGER.debug("model attempt %d/%d failed, retrying", attempt, attempts)
                 self._sleep(_backoff_seconds(attempt))
@@ -329,6 +364,60 @@ class OpenAiProvider:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cached_prompt_tokens=cached_prompt_tokens,
+        )
+
+    def _read_search(self, response: httpx.Response) -> LlmResponse:
+        """The text of a Responses API answer, and the pages it cites.
+
+        ``output`` holds ``web_search_call`` items (with ``action.sources`` when asked for) and
+        a ``message`` whose ``output_text`` parts carry ``url_citation`` annotations. The
+        cited pages are the evidence; with none cited, the first consulted ones stand in.
+        """
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise LlmResponseError(f"model returned a non-JSON body: {exc}") from exc
+        if not isinstance(payload, Mapping):
+            raise LlmResponseError("model returned a body that is not an object")
+
+        texts: list[str] = []
+        cited: list[tuple[str, str]] = []
+        consulted: list[tuple[str, str]] = []
+        for item in payload.get("output") or ():
+            if not isinstance(item, Mapping):
+                continue
+            if item.get("type") == "message":
+                for part in item.get("content") or ():
+                    if not isinstance(part, Mapping) or part.get("type") != "output_text":
+                        continue
+                    texts.append(str(part.get("text") or ""))
+                    for note in part.get("annotations") or ():
+                        if (
+                            isinstance(note, Mapping)
+                            and note.get("type") == "url_citation"
+                            and note.get("url")
+                        ):
+                            cited.append((str(note["url"]), str(note.get("title") or "")))
+            elif item.get("type") == "web_search_call":
+                action = item.get("action")
+                sources = action.get("sources") if isinstance(action, Mapping) else None
+                for source in sources or ():
+                    if isinstance(source, Mapping) and source.get("url"):
+                        consulted.append((str(source["url"]), str(source.get("title") or "")))
+
+        content = "\n".join(text for text in texts if text.strip()).strip()
+        if not content:
+            raise LlmResponseError(
+                f"model returned no text (status {payload.get('status') or 'unknown'})"
+            )
+        prompt_tokens, completion_tokens, cached_prompt_tokens = _usage(payload)
+        return LlmResponse(
+            content=content,
+            model=str(payload.get("model") or self.model),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cached_prompt_tokens=cached_prompt_tokens,
+            citations=tuple(dict.fromkeys(cited or consulted)),
         )
 
 

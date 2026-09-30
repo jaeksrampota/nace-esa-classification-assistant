@@ -340,6 +340,30 @@ class Settings(BaseSettings):
             "few hundred; the cap stops a rambling model being billed for rambling."
         ),
     )
+    llm_web_search: bool = Field(
+        default=True,
+        description=(
+            "Let the model search the web for every issuer (OpenAI Responses API, `web_search` "
+            "tool): its Czech summary joins the description and the pages it cites join the "
+            "evidence. Only with a model configured. About 0.01 USD per search on top of the "
+            "tokens (30 Sept 2026)."
+        ),
+    )
+    llm_web_reasoning_effort: str | None = Field(
+        default="low",
+        description=(
+            "`reasoning.effort` for the web search call. OpenAI: web search does not work with "
+            "gpt-5's 'minimal', and 'none' may give weaker results. Empty means not sent."
+        ),
+    )
+    llm_web_max_output_tokens: int = Field(
+        default=2000,
+        ge=200,
+        description=(
+            "Ceiling on the web search call's output; its reasoning tokens count against it, so "
+            "it is larger than LLM_MAX_OUTPUT_TOKENS."
+        ),
+    )
     lookup_deadline_seconds: float = Field(
         default=50.0,
         ge=0,

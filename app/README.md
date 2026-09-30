@@ -699,6 +699,13 @@ providers' docs on 23 Sept 2026:
 Every model or endpoint change is measured with the golden run through the model before it
 stays (below).
 
+**The web search** (`LLM_WEB_SEARCH`, on by default since 30 Sept 2026) is a third call per
+lookup, to OpenAI's Responses API (`/responses`) with the `web_search` tool
+(`core/sources/llm_web.py`): about 0.01 USD a lookup on top of the tokens, charged to the
+signed-in user like the classifications. An endpoint without the Responses API or the tool (Azure
+classic, most gateways) answers with an error and every page shows "hledání na webu (model)
+selhalo": set `LLM_WEB_SEARCH=false` there.
+
 ### Switching it on locally
 
 1. Put the key in `app/.env` (git-ignored, never in code or chat):

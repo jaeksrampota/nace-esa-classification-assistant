@@ -364,6 +364,38 @@ class DatabaseCache:
     def put(self, key: str, classification: Classification, *, issuer_name: str | None) -> None:
         from core.classify.cache import _to_payload
 
+        self._write(
+            key,
+            classification.kind,
+            issuer_name,
+            classification.model,
+            classification.prompt_version,
+            _to_payload(classification),
+        )
+
+    def get_text(self, key: str) -> str | None:
+        """A payload stored as text (the web search's finding), or ``None``."""
+        try:
+            rows = self.database.query("SELECT payload FROM classifications WHERE key = ?", (key,))
+        except DatabaseError as exc:
+            LOGGER.warning("cache read failed: %s", exc)
+            return None
+        return str(rows[0][0]) if rows else None
+
+    def put_text(
+        self, key: str, payload: str, *, kind: str, issuer_name: str | None, model: str | None
+    ) -> None:
+        self._write(key, kind, issuer_name, model, None, payload)
+
+    def _write(
+        self,
+        key: str,
+        kind: str,
+        issuer_name: str | None,
+        model: str | None,
+        prompt_version: str | None,
+        payload: str,
+    ) -> None:
         try:
             self.database.execute(
                 "INSERT INTO classifications (key, kind, issuer, model, prompt_version, "
@@ -371,16 +403,7 @@ class DatabaseCache:
                 "ON CONFLICT (key) DO UPDATE SET payload = excluded.payload, "
                 "issuer = excluded.issuer, model = excluded.model, "
                 "prompt_version = excluded.prompt_version, created_at = excluded.created_at",
-                (
-                    key,
-                    classification.kind,
-                    issuer_name,
-                    classification.model,
-                    classification.prompt_version,
-                    None,
-                    _to_payload(classification),
-                    _now(),
-                ),
+                (key, kind, issuer_name, model, prompt_version, None, payload, _now()),
             )
         except DatabaseError as exc:
             LOGGER.warning("cache write failed: %s", exc)

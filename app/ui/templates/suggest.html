@@ -222,7 +222,7 @@
     margin: 0.8rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.84rem; max-width: 90ch;
   }
   .issuer ul.identity li { margin-bottom: 0.15rem; }
-  .issuer p.desc { margin: 0.9rem 0 0; max-width: 75ch; }
+  .issuer p.desc { margin: 0.9rem 0 0; max-width: 75ch; white-space: pre-line; }
 
   /* ---- suggestion panels ---- */
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
@@ -518,6 +518,7 @@
     <div class="card issuer">
       <span class="kicker">Emitent</span>
       <h2>{{ suggestion.issuer_name or 'Emitent neurčen' }}</h2>
+      {% if suggestion.typed_name_apart %}<div class="meta">zadaný název: {{ suggestion.typed_name_apart }}</div>{% endif %}
       <div class="meta">
         {% if suggestion.request.isin %}ISIN {{ suggestion.request.isin }} · {% endif %}
         {% if suggestion.identity.lei %}LEI {{ suggestion.identity.lei }} · {% endif %}

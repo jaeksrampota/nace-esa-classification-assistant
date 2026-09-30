@@ -21,7 +21,7 @@ yesterday's answers keep being served for today's prompt.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from core.classify.models import ESA, NACE, Candidate, CandidateSet, Kind
 from core.classify.text import overlap_score, stems
@@ -116,16 +116,27 @@ SYSTEM_PROMPT: Final[str] = (
 )
 
 
+#: What a model request is for: one of the two classifications, or the web search for the
+#: issuer's description (:mod:`core.sources.llm_web`), which the ledger records as ``WEB``.
+PromptKind = Literal["NACE", "ESA", "WEB"]
+
+
 @dataclass(frozen=True, slots=True)
 class Prompt:
-    """One ready-to-send request: the two messages, the schema, and what it will cost."""
+    """One ready-to-send request: the two messages, the schema, and what it will cost.
 
-    kind: Kind
+    ``web_search`` makes the provider let the model search the web first (it then answers in
+    text, not against ``schema``), never on the pages of ``blocked_domains``.
+    """
+
+    kind: PromptKind
     system: str
     user: str
     schema: dict[str, Any]
     version: str = PROMPT_VERSION
     candidate_codes: tuple[str, ...] = ()
+    web_search: bool = False
+    blocked_domains: tuple[str, ...] = ()
 
     @property
     def estimated_tokens(self) -> int:

@@ -17,6 +17,8 @@ from core.classify.usage_report import (
     PRICES,
     PRICES_SHEET,
     SUMMARY_SHEET,
+    WEB_SEARCH_CALL_USD,
+    cost_of,
     price_for,
     write_usage_workbook,
 )
@@ -71,6 +73,12 @@ class TestPrices:
 
     def test_a_longer_name_is_not_a_snapshot(self) -> None:
         assert price_for("gpt-6-lunar") is None
+
+    def test_a_web_search_costs_its_fee_on_top_of_its_tokens(self) -> None:
+        """10 USD per 1,000 searches (30 Sept 2026): ten times the tokens of a classification."""
+        web = cost_of(record(kind="WEB")).cost
+        assert web == pytest.approx(ONE_LUNA_CALL + WEB_SEARCH_CALL_USD)
+        assert cost_of(record(kind="NACE")).cost == pytest.approx(ONE_LUNA_CALL)
 
 
 class TestLedgerRecords:
@@ -196,9 +204,11 @@ class TestWorkbook:
     def test_the_prices_sheet_lists_every_price_and_its_source(self, out: Path) -> None:
         write_usage_workbook([record()], out)
         sheet = load_workbook(out)[PRICES_SHEET]
-        models = [sheet.cell(row=r, column=1).value for r in range(2, sheet.max_row + 1)]
+        models = [sheet.cell(row=r, column=1).value for r in range(2, len(PRICES) + 2)]
         assert models == sorted(PRICES)
         assert str(sheet.cell(row=2, column=5).value).startswith("https://")
+        # The web search's per-call fee is said under the table.
+        assert "per call" in str(sheet.cell(row=len(PRICES) + 3, column=1).value)
 
     def test_an_empty_ledger_still_makes_a_valid_workbook(self, out: Path) -> None:
         report = write_usage_workbook([], out)

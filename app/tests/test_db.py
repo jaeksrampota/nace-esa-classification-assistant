@@ -150,11 +150,20 @@ class TestCache:
         assert len(cache) == 1
         assert db.query("SELECT issuer FROM classifications") == [("Y",)]
 
+    def test_a_web_finding_is_kept_as_text_beside_the_answers(self, db: Database) -> None:
+        cache = DatabaseCache(db)
+        assert cache.get_text("w") is None
+        cache.put_text("w", '{"x": 1}', kind="WEB", issuer_name="X", model="m")
+        cache.put_text("w", '{"x": 2}', kind="WEB", issuer_name="X", model="m")
+        assert cache.get_text("w") == '{"x": 2}'
+        assert db.query("SELECT kind FROM classifications") == [("WEB",)]
+
     def test_failures_degrade_to_no_cache(self, db: Database, monkeypatch) -> None:
         monkeypatch.setattr(db, "_open", lambda: (_ for _ in ()).throw(OSError("down")))
         cache = DatabaseCache(db)
         cache.put("k", classification(), issuer_name=None)
         assert cache.get("k") is None
+        assert cache.get_text("k") is None
         assert len(cache) == 0
 
     def test_the_builder_prefers_the_database(self, db: Database, tmp_path: Path) -> None:

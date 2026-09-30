@@ -117,6 +117,8 @@ class IssuerEvidence:
         sources: Where it came from, in the order used.
         provenance: Always ``WEB``, with the retrieval time.
         notes: Why the result is thin, when it is.
+        found_name: The issuer's official name as the model's web search found it
+            (:mod:`core.sources.llm_web`), ``None`` without one.
     """
 
     query: str
@@ -125,6 +127,7 @@ class IssuerEvidence:
     sources: tuple[EvidenceSource, ...] = ()
     provenance: Provenance | None = None
     notes: tuple[str, ...] = field(default=())
+    found_name: str | None = None
 
     @property
     def has_description(self) -> bool:
