@@ -46,6 +46,9 @@ def settings(**overrides: object) -> Settings:
         "web_max_pages": 2,
         "web_max_results": 4,
         "web_search_url": None,
+        # Not about Wikimedia: off, or every name here would reach the real Wikipedia search
+        # (it is asked for every lookup since 30 Sept 2026, typed description or not).
+        "wikimedia_enabled": False,
     }
     base.update(overrides)
     return Settings(**base)
@@ -93,7 +96,7 @@ class TestBlocklist:
         )
         text, error = gatherer._read("https://or.justice.cz/anything")
         assert text == ""
-        assert error is not None and "blocked" in error
+        assert error is not None and "blokovaná adresa" in error
 
     def test_blocked_hosts_covers_both_names_from_the_brief(self) -> None:
         assert {"apl.czso.cz", "or.justice.cz"} <= BLOCKED_HOSTS
@@ -166,7 +169,7 @@ class TestGathering:
             [SearchHit(url="https://or.justice.cz/x"), SearchHit(url="https://example.com/a")]
         ).gather(name="X")
         assert all("justice.cz" not in source.url for source in evidence.sources)
-        assert any("must not be scraped" in note for note in evidence.notes)
+        assert any("české registry se nestahují" in note for note in evidence.notes)
 
     def test_only_blocked_results_yields_no_description(self) -> None:
         evidence = self._gatherer([SearchHit(url="https://or.justice.cz/x")]).gather(name="X")
@@ -203,18 +206,19 @@ class TestThinResults:
     def test_no_query_at_all(self) -> None:
         evidence = WebEvidenceGatherer(settings(), provider=NullSearchProvider()).gather()
         assert not evidence.has_description
-        assert "nothing to search for" in evidence.notes[0]
+        assert "není podle čeho hledat" in evidence.notes[0]
 
     def test_web_disabled(self) -> None:
         gatherer = WebEvidenceGatherer(settings(web_enabled=False), provider=NullSearchProvider())
         evidence = gatherer.gather(name="X")
         assert not evidence.has_description
-        assert "disabled" in evidence.notes[0]
+        assert "vypnuté" in evidence.notes[0]
 
     def test_no_provider_configured(self) -> None:
+        """MO reads this note on the page, so it is Czech and says what to do."""
         evidence = WebEvidenceGatherer(settings(), provider=NullSearchProvider()).gather(name="X")
         assert not evidence.has_description
-        assert any("no search provider" in note for note in evidence.notes)
+        assert "vyhledávání na webu není zapojené – popis činnosti zadejte ručně" in evidence.notes
 
     def test_search_failure_is_reported_not_raised(self) -> None:
         class Failing:
@@ -227,7 +231,7 @@ class TestThinResults:
 
         evidence = WebEvidenceGatherer(settings(), provider=Failing()).gather(name="X")
         assert not evidence.has_description
-        assert any("search failed" in note for note in evidence.notes)
+        assert any("vyhledávání na webu selhalo" in note for note in evidence.notes)
 
     def test_unfetchable_page_is_noted(self) -> None:
         gatherer = WebEvidenceGatherer(
@@ -245,7 +249,7 @@ class TestThinResults:
             client=page_client(content_type="application/pdf"),
         )
         evidence = gatherer.gather(name="X")
-        assert any("not a readable document" in note for note in evidence.notes)
+        assert any("není čitelný dokument" in note for note in evidence.notes)
 
 
 class TestHttpSearchProvider:

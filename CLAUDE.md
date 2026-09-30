@@ -16,8 +16,9 @@ taking DWS and ARES with it — nothing here reads them. **The plan, every decis
 open question live in `docs/ROADMAP.md`: read it after this file and keep both in step.**
 
 Sources, in order: **GLEIF** (`api.gleif.org`) + **OpenFIGI** (`api.openfigi.com`) for an
-issuer given by ISIN; **Wikidata/Wikipedia by that LEI**, then **web search**, for activity
-descriptions of foreign issuers only.
+issuer given by ISIN; **Wikidata/Wikipedia by that LEI or by the issuer's name**, then the
+**model's own web search** (every lookup since 30 Sept 2026), for activity descriptions of
+foreign issuers only.
 Never scrape `apl.czso.cz` or `or.justice.cz`.
 
 ## Codebooks (xlsx; from a private Vercel Blob store in deployment, roadmap D3)
@@ -47,7 +48,8 @@ Never scrape `apl.czso.cz` or `or.justice.cz`.
 core/identifiers  isin.py
 core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), web.py, wikimedia.py,
                   names.py (name matching), ecb.py (ECB lists of financial institutions),
-                  firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping)
+                  firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping),
+                  llm_web.py (the model's web search for the description)
 core/codebooks    loaders, versioning, consistency; blob.py (private Vercel Blob)
 core/classify     candidates.py (pre-filter), hints.py, llm.py, proposal.py, golden.py,
                   budget.py (limits, usage ledger), usage_report.py (the ledger as Excel)
@@ -163,8 +165,11 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
   * `fact_sheet()` is Czech prose whose parentheses carry the **English** words the hint table
     reacts to, so a GLEIF category reaches the shortlist with no new mechanism. It is appended
     to the description the pre-filter scores and the model reads.
-  * The legal name is the web search query (an ISIN never was one); what MO typed still wins as
-    the displayed name.
+  * The legal name is the web search query (an ISIN never was one). **The name shown and
+    exported is the one found** (`suggest.issuer_name_of`, 30 Sept 2026, Jakub: "find the
+    issuer's name"): GLEIF's legal name, then the name the model's web search found, then what
+    MO typed, then OpenFIGI's market name; a typed name that differs is shown under it
+    (`typed_name_apart`, "zadaný název: …"). Until then the typed name won.
   * **With no ISIN, the typed name is asked in GLEIF** (`GLEIF_NAME_MATCH`, 29 Sept 2026):
     `filter[entity.legalName]` is a word search ("adidas" → adidas AG + 30 subsidiaries), so
     only an ACTIVE entity whose name *is* the query counts (`names.fold`), else the same base
@@ -190,21 +195,25 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     Egress needed: `api.gleif.org`, `api.openfigi.com` (443).
 - **Web evidence** (`web.py`): the scraping ban is **enforced** by `BLOCKED_HOSTS`/`is_blocked()`,
   checked when filtering hits and again inside the fetcher. A typed description is authoritative
-  and skips the web. Every thin result (no provider, search down, 404, PDF, all blocked) returns
+  and stays first, but the web is still consulted (30 Sept 2026, Jakub: always look at the web):
+  Wikipedia's lead follows it as "Podle Wikipedie (cs): …". Every thin result (no provider, search down, 404, PDF, all blocked) returns
   evidence with no description, which must make the classifier **abstain rather than guess from
   the name**. The provider is a Protocol — which search API a bank may call is procurement.
-- **Wikipedia description** (`wikimedia.py`, E5.1, revived 24 Sept 2026): with no typed description
-  and a LEI from GLEIF, the gatherer asks Wikidata for the item whose P1278 is the LEI, then the
-  Wikipedia REST summary (`WIKIPEDIA_LANGUAGES`, `cs,en`), before any search provider.
-  * Matched on the **LEI first**; when no item carries it (or there is none), the **official
-    name** (`WIKIMEDIA_NAME_MATCH`, 24 Sept 2026): `wbsearchentities` label/alias hits count only
-    when the matched text *is* the name (`_fold`: case, diacritics, punctuation), the first
-    edition (en, then cs) with a hit decides, exactly one item may match, and an item carrying
-    another entity's LEI is refused - BMW Finance N.V. stays unmatched rather than becoming BMW.
-    Second try without the legal-form suffix; then a brand hit with a LEI is refused too.
-    Ties ("Bundesrepublik Deutschland", "European Union") are left alone, unless exactly one
-    tied item has a cs/en article ("Adidas AG" vs an empty duplicate item, 29 Sept 2026). Measured on the 36
-    golden ISINs: 14 described by LEI, 6 by name, 16 none (vehicles, funds, tied names).
+- **Wikipedia description** (`wikimedia.py`, E5.1, revived 24 Sept 2026): for every lookup (a
+  typed description too, since 30 Sept 2026) the gatherer asks Wikidata for the item whose P1278
+  is the LEI, then the Wikipedia REST summary (`WIKIPEDIA_LANGUAGES`, `cs,en`), before any search
+  provider.
+  * Matched on the **LEI first**; when no item carries it (or there is none), the **issuer's
+    name is searched on Wikipedia** (`WIKIMEDIA_NAME_MATCH`, `describe_by_name`, 30 Sept 2026):
+    legal form stripped, English edition first (a Czech search gave the *town* for "Kongsberg
+    Gruppen ASA"), among hits whose title shares a distinctive word with the name
+    (`names_agree`) the one sharing most (`shared_words`) is tried first, disambiguations and
+    family names skipped, and the item's Czech article preferred for the text. **No uniqueness
+    test and no LEI guard**: Jakub called the strict exact-label match (24-29 Sept) nonsense,
+    since it described almost no fund or vehicle. Accepted cost: a vehicle may get its group's
+    article (live: BMW Finance N.V. -> "BMW Bank"). Live 30 Sept: Kongsberg Gruppen, the EIB (cs)
+    found; iShares Core MSCI World, Nordkap Funding, Bundesrepublik Deutschland not - the model's
+    web search is for those.
     The item is sometimes the group or brand (BMW AG -> "BMW"), so the page always says to
     check; a name match says "podle shody názvu, ne identifikátoru".
   * The description is the article's lead plus Wikidata's one-liner and P452 industry labels
@@ -215,7 +224,30 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     deadline (a `SourceUnavailableError`, noted, never "not found"). Hosts `www.wikidata.org`,
     `{cs,en}.wikipedia.org`, in `/probe`'s default set while `WIKIMEDIA_ENABLED`.
   * Test helpers not about it set `wikimedia_enabled=False`, or a LEI in a fixture reaches the
-    real Wikimedia.
+    real Wikimedia (a name reaches the real Wikipedia search too, since 30 Sept 2026).
+- **The model's web search** (`llm_web.py`, 30 Sept 2026, Jakub: "use llm for each"): every
+  lookup with a model asks it to search the web for the issuer - OpenAI's **Responses API**
+  (`POST /responses`) with the `web_search` tool, `tool_choice: "required"`,
+  `filters.blocked_domains` = `BLOCKED_HOSTS`, `include: ["web_search_call.action.sources"]`,
+  `reasoning.effort` `LLM_WEB_REASONING_EFFORT` (low; gpt-5 "minimal" cannot search).
+  `gpt-5.6-luna` lists the tool (model page, 30 Sept 2026). It answers in Czech, "NÁZEV: … /
+  POPIS: …" (activity, kind of institution, seat, group, **who owns or controls it** - Q7) or
+  "NENALEZENO"; `parse_answer` reads it. The sentences follow the typed/Wikipedia description
+  as "Podle webu (vyhledal model …): …", the cited pages join the evidence (a page on a blocked
+  host is dropped), and the name is `IssuerEvidence.found_name`.
+  * One `Prompt` with `kind="WEB"`, `web_search=True` through the classifier's **budgeted
+    provider**, so the ledger records it as `WEB` for the signed-in user; `usage_report` adds
+    `WEB_SEARCH_CALL_USD` (10 USD per 1,000 searches) to those rows. ~0.01 USD a lookup, about
+    ten times the two classification calls, and a third call per lookup: the 200-call cap per
+    instance lasts ~66 lookups.
+  * **Cached** in the classifications table as text (`get_text`/`put_text`, kind `WEB`), key =
+    name + ISIN + LEI + typed text + model + `WEB_PROMPT_VERSION`: the page, the download and a
+    report's re-run read the same text, so the classification cache still hits.
+  * Starts only if a classification call still fits after it (`2 × call_seconds` left before
+    `LOOKUP_DEADLINE_SECONDS`), else a note. Fail-soft: no model = no call and no note
+    (`build_web_search` returns `None`), a failed call = a note. `LLM_WEB_SEARCH=false` turns
+    it off. **Not yet exercised against the live API** (no key off Vercel): check a production
+    lookup for the "Podle webu" paragraph after deploying.
 - **ECB lists** (`ecb.py`, 29 Sept 2026): the LEI from GLEIF is looked up in the ECB's lists of
   financial institutions - MFI (central banks, credit institutions, MMFs, other deposit-takers),
   IF, FVC, IC, PF - loaded into the central database's `ecb_institutions` table by `python -m
@@ -254,15 +286,18 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
   **before** ranking, whenever the family would not *fit* in the limit (29 Sept 2026: it used to
   check only "matched at all", so a weak match was ranked last and cut - 47 of 108 test lookups).
   With `[ECB_NONE]` + `[GENERAL]` and no financial/public keyword, `register_esa_families`
-  settles it as a register rule. A rules proposal that ties control variants leaves the row's
-  code empty and the page's radio unchecked: the first variant is only the codebook's order. Appending afterwards is not enough — an industrial issuer whose description
+  settles it as a register rule. A rules proposal that ties control variants proposes the
+  family, not a code: the page shows the family and every tied variant alike (codebook order, no
+  radio checked), the row's code stays empty and its label names the family - the first variant is
+  only the family's order (30 Sept 2026: the page used to show it as the navrhovaný kód). Appending afterwards is not enough — an industrial issuer whose description
   says only "bonds" and "finance" loses every slot to financial families. Measured: 20% of ESA
   recall. Do not turn it into a plain fallback.
 - **Navrhovaný kód** (`proposal.py`): the model's first pick; with no model answer, the
   shortlist's first candidate **only if a rule put it there** (score ≥ 5; lexical stops at 1.0)
   **and no rule for another code or ESA family ties with it** — the captive trap, where "bank"
   and "captive" tie and the alphabet would pick the bank. A rule's proposal has no confidence,
-  names its rules and lists tied variants. `answered` still means the model answered.
+  names its rules and, for a tie of control variants, offers them as `choices` under its
+  `family` ("navrhovaná skupina"). `answered` still means the model answered.
 - **The classifier** (`llm.py`, `prompts.py`): the JSON schema pins `code` to an enum of exactly
   the shortlisted codes; `_accept()` re-checks and builds the Suggestion **from the candidate**,
   so CTS ID and label come from the codebook and cannot be invented. Every failure path — no

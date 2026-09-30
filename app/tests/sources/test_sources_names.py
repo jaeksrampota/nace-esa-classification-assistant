@@ -54,6 +54,21 @@ def test_names_agree(typed: str, known: str, agree: bool) -> None:
     assert names_agree(typed, known) is agree
 
 
+@pytest.mark.parametrize(
+    ("typed", "known", "shared"),
+    [
+        ("Kongsberg Gruppen ASA", "Kongsberg Gruppen", 2),
+        ("Kongsberg Gruppen ASA", "Kongsberg", 1),  # the town: ranked below the company
+        ("BMW Finance N.V.", "BMW Bank", 1),  # "finance" and "bank" tell nothing apart
+        ("Nordkap Funding B.V.", "Nordkapp", 0),
+    ],
+)
+def test_shared_words_rank_the_wikipedia_hits(typed: str, known: str, shared: int) -> None:
+    from core.sources.names import shared_words
+
+    assert shared_words(typed, known) == shared
+
+
 def test_an_italian_legal_form_with_an_apostrophe() -> None:
     assert legal_form_key("Cassa Depositi e Prestiti S.p.A.") == legal_form_key(
         "CASSA DEPOSITI E PRESTITI SOCIETA' PER AZIONI"

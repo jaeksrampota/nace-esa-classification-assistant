@@ -215,12 +215,13 @@ def suggestion_row(suggestion: object) -> dict[str, object]:
             part for part in (proposal.justification, proposal.tie_note) if part
         )
         # A rules tie (the control variants of one family) has no single code: the first
-        # of them is only the codebook's order, so the row leaves the choice to MO.
+        # of them is only the codebook's order, so the row leaves the choice to MO and
+        # names the family, not that first variant.
         row.update(
             {
                 f"{prefix}_code": None if proposal.tied else proposal.code,
                 f"{prefix}_cts_id": None if proposal.tied else proposal.cts_id,
-                f"{prefix}_label": proposal.label,
+                f"{prefix}_label": proposal.family or proposal.label,
                 f"{prefix}_confidence": proposal.confidence,
                 f"{prefix}_justification": justification,
                 f"{prefix}_alt1": _alternative(proposal.alternatives, 0),

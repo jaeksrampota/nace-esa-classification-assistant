@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -151,7 +152,7 @@ class TestAbstention:
             response = TestClient(api.app).post("/suggest", data={"description": UNRULED})
             assert "Kód nelze spolehlivě určit" in response.text
             assert "navrhovaný kód" not in response.text
-            assert "no model configured" in response.text
+            assert "model není zapojen" in response.text
             # Deterministic mode is a result, not a failure: the narrowed codebook has to be
             # on screen with its CTS IDs, or the tool has thrown its own work away.
             assert "zúžený číselník" in response.text
@@ -170,9 +171,34 @@ class TestAbstention:
             assert "podle pravidel" in response.text
             assert "Podle pravidel, bez modelu" in response.text
             assert "jistota" not in response.text  # only a model has a confidence
-            assert "no model configured" in response.text  # why the rules had to decide
+            assert "model není zapojen" in response.text  # why the rules had to decide
             # The rest of the narrowed codebook stays on screen under the proposal.
             assert "další kandidáti ze zúženého číselníku" in response.text
+        finally:
+            api._state.clear()
+
+    def test_a_tie_of_control_variants_proposes_the_family_not_its_first_code(self) -> None:
+        """Nordkap's ESA: the rules settle the captive family, not who controls it (Q7).
+
+        The first variant is only the family's order (foreign control first); showing it as
+        the proposed code made every tie read "pod zahraniční kontrolou".
+        """
+        codebooks = build_codebooks()
+        api._state["settings"] = Settings(llm_api_key=None, llm_cache_path=None)
+        api._state["service"] = make_service(codebooks, provider=NullLlmProvider())
+        try:
+            page = TestClient(api.app).post("/suggest", data={"name": "Nordkap Funding B.V."}).text
+            assert "navrhovaná skupina" in page
+            assert "podle pravidel · vyberte kód" in page
+            assert "Kaptivní finanční instituce a půjčovatelé peněz</div>" in page
+            assert "vyberte jeden z kódů 2002702, 2002703" in page
+            # Both variants offered once each, in codebook order, neither pre-selected ...
+            assert page.count('name="esa" value="2002702"') == 1
+            assert page.count('name="esa" value="2002703"') == 1
+            assert page.index('value="2002702"') < page.index('value="2002703"')
+            assert not re.search(r'name="esa" value="\d+" form="download" checked', page)
+            # ... while NACE, which the rules did settle, keeps its proposed code.
+            assert 'name="nace" value="64" form="download" checked' in page
         finally:
             api._state.clear()
 
@@ -190,6 +216,9 @@ class TestAbstention:
             assert ruled["row"]["NACE_code"] == "64"
             assert ruled["row"]["NACE_confidence"] is None
             assert ruled["row"]["NACE_justification"].startswith("Podle pravidel, bez modelu")
+            # ESA ties two control variants: no code, and the label names the family only.
+            assert ruled["row"]["ESA_code"] is None
+            assert ruled["row"]["ESA_label"] == "Kaptivní finanční instituce a půjčovatelé peněz"
 
             unruled = client.post("/api/suggest", json={"description": UNRULED}).json()
             assert unruled["nace"]["proposal"] is None
@@ -232,12 +261,15 @@ class TestModelStates:
         assert "Financuje vlastní skupinu." in page  # the model's own justification
         assert "podle pravidel" not in page
         assert "Kód nelze spolehlivě určit" not in page
+        # Who decided is said in so many words, on every card.
+        assert page.count("Jak rozhodl:") == 2
+        assert "model stub-model – vybral z nabídky" in page
 
     def test_a_model_abstention_is_shown_with_its_reason(self) -> None:
         declined = json.dumps({"sufficient_evidence": False, "picks": []})
         page = self._page(StubLlmProvider(declined), description=UNRULED)
         assert "Kód nelze spolehlivě určit" in page
-        assert "the model judged the evidence insufficient" in page
+        assert "model usoudil, že podklady k rozhodnutí nestačí" in page
         assert "jistota" not in page
         assert "zúžený číselník" in page
 
@@ -245,7 +277,9 @@ class TestModelStates:
         declined = json.dumps({"sufficient_evidence": False, "picks": []})
         page = self._page(StubLlmProvider(declined), name="Nordkap Funding B.V.")
         assert "podle pravidel" in page
-        assert "the model judged the evidence insufficient" in page
+        assert "model usoudil, že podklady k rozhodnutí nestačí" in page
+        assert "pravidla, protože model kód nevybral (model usoudil" in page
+        assert "klíčové slovo: kaptivní finanční jednotka skupiny" in page  # reasons in Czech
 
     def test_a_budget_refusal_says_why_and_never_calls_the_model(self) -> None:
         """Vercel without LLM_DAILY_TOKEN_BUDGET=0: every call is refused before it is sent."""
@@ -257,7 +291,7 @@ class TestModelStates:
         )
         page = self._page(refusing, name="Nordkap Funding B.V.")
         assert stub.calls == []
-        assert "usage cannot be recorded" in page
+        assert "spotřebu nelze zaznamenat" in page
         assert "LLM_DAILY_TOKEN_BUDGET=0" in page
         assert "podle pravidel" in page  # the rules still propose
         assert "jistota" not in page
@@ -319,6 +353,9 @@ class TestDownload:
         pairs = {row[0].value: row[1].value for row in book["Run"].iter_rows(min_row=2)}
         assert pairs["ESA vybral"].startswith("uživatel")
         assert pairs["NACE vybral"] == "návrh nástroje"
+        # How each code was decided travels with the export, as on the page.
+        assert pairs["NACE – jak rozhodnuto"].startswith("model stub-model – vybral z nabídky")
+        assert "Financuje vlastní skupinu." in pairs["NACE – jak rozhodnuto"]
 
     def test_a_code_off_the_shortlist_is_refused(self, client: TestClient) -> None:
         response = client.get("/suggest.xlsx", params={"name": "Nordkap", "nace": "01"})
@@ -371,8 +408,16 @@ class TestHealth:
 class TestWarnings:
     def test_with_wikimedia_the_banner_says_where_the_description_comes_from(self) -> None:
         warnings = api._warnings(Settings(llm_api_key=None, web_search_url=None))
-        assert any("Wikipedii podle LEI" in warning for warning in warnings)
+        assert any("Wikipedii (podle LEI nebo názvu emitenta)" in warning for warning in warnings)
+        assert not any("vyhledáváním modelem" in warning for warning in warnings)  # no model
         assert not any("WEB_SEARCH_URL" in warning for warning in warnings)
+
+    def test_with_a_model_the_banner_says_it_searches_the_web_too(self) -> None:
+        warnings = api._warnings(Settings(llm_api_key="sk-test", web_search_url=None))
+        assert any(
+            "na Wikipedii (podle LEI nebo názvu emitenta) a na webu vyhledáváním modelem" in w
+            for w in warnings
+        )
 
     def test_without_wikimedia_it_asks_for_a_typed_description(self) -> None:
         warnings = api._warnings(
@@ -556,13 +601,20 @@ class TestIsinIdentity:
             isin_client.post("/suggest", data={"isin": self.ISIN})
         assert any("sources=GLEIF+OPENFIGI+WEB" in record.message for record in caplog.records)
 
-    def test_a_typed_name_still_wins(self, isin_client: TestClient) -> None:
-        """What MO typed is authoritative; the register's spelling is shown as a fact."""
+    def test_the_register_name_is_the_issuer_and_the_typed_one_is_kept(
+        self, isin_client: TestClient
+    ) -> None:
+        """The name found is the output (30 Sept 2026); what MO typed stays in the row."""
         body = isin_client.post(
             "/api/suggest", json={"isin": self.ISIN, "name": "Deutsche Bank AG"}
         ).json()
-        assert body["issuer_name"] == "Deutsche Bank AG"
-        assert body["identity"]["legal_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
+        assert body["issuer_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
+        assert body["row"]["issuer_name"] == "DEUTSCHE BANK AKTIENGESELLSCHAFT"
+        assert body["row"]["IN_name"] == "Deutsche Bank AG"
+        page = isin_client.post(
+            "/suggest", data={"isin": self.ISIN, "name": "Deutsche Bank AG"}
+        ).text
+        assert "zadaný název: Deutsche Bank AG" in page
 
     def test_a_name_lookup_asks_gleif_by_name_only(
         self, isin_client: TestClient, calls: list[str]

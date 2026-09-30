@@ -23,7 +23,9 @@ codebook to about a dozen candidates, each with its CTS ID resolved, and the mod
 confidence and a one-sentence reason. When the model is off or declines - typically ESA when
 the evidence does not say who owns the issuer - the deterministic result stands: where a rule
 decided - a GLEIF category or a keyword - the first candidate is shown as the **navrhovaný kód**,
-marked "podle pravidel · ověřte" and without a confidence; where only text similarity ranks the
+marked "podle pravidel · ověřte" and without a confidence; where a rule settles only an ESA
+family, its control variants are offered alike as the **navrhovaná skupina** ("podle pravidel ·
+vyberte kód"); where only text similarity ranks the
 list, or rules for two codes tie, nothing is proposed and the panel says the choice is MO's. The
 page and the xlsx carry the same proposal and the whole shortlist; a person confirms every code.
 
@@ -697,6 +699,13 @@ providers' docs on 23 Sept 2026:
 Every model or endpoint change is measured with the golden run through the model before it
 stays (below).
 
+**The web search** (`LLM_WEB_SEARCH`, on by default since 30 Sept 2026) is a third call per
+lookup, to OpenAI's Responses API (`/responses`) with the `web_search` tool
+(`core/sources/llm_web.py`): about 0.01 USD a lookup on top of the tokens, charged to the
+signed-in user like the classifications. An endpoint without the Responses API or the tool (Azure
+classic, most gateways) answers with an error and every page shows "hledání na webu (model)
+selhalo": set `LLM_WEB_SEARCH=false` there.
+
 ### Switching it on locally
 
 1. Put the key in `app/.env` (git-ignored, never in code or chat):
@@ -774,8 +783,10 @@ daily budget is 0 (no usage ledger), so that cap is the backstop.
    - The golden run through the model runs locally (step 3 of the local list), not on Vercel.
 4. **Reading a failure** (the reason on the page, in `nace.reason`, or in the golden run):
    `401` - the key, or an Azure endpoint that wants the `api-key` header (adapter); `400` naming
-   a parameter - the endpoint table; "cannot be enforced" - `LLM_DAILY_TOKEN_BUDGET` is not 0;
-   "no time left for the model" - the registers were slow, the rules' proposal stands.
+   a parameter - the endpoint table; "nelze vynutit" - `LLM_DAILY_TOKEN_BUDGET` is not 0;
+   "na model nezbyl čas" - the registers were slow, the rules' proposal stands. (The reasons
+   are Czech since 30 Sept 2026, as MO reads them; the page's "Jak rozhodl" line says who
+   decided each code.)
 5. **Rollback**: `LLM_ENABLED=false` and redeploy - the tool is back in deterministic mode, with
    the rules' proposals.
 

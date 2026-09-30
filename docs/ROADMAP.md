@@ -115,6 +115,18 @@ optional.
    Then: a register that settles one code outranks the model (EIB 64 -> 99), and the EU (GLEIF: GENERAL,
    BE; OpenFIGI: Govt) is recognised by its ISIN country code `EU` (ISO 6166, EU institutions only) -
    the owner rejected a rule on the EU's name: rules come from structured data, never one issuer's name.
+3g. **The web on every lookup, and how each code was decided (30 Sept 2026, Jakub's review of the
+   live site; branch `feat/web-lookup-and-decision-notes`).** Every code card says "Jak rozhodl:" -
+   the model, a register, or the rules because the model did not - and the reasons are Czech on
+   the page, in the export and on the Run sheet. A tie of control variants proposes the family
+   ("navrhovaná skupina") and offers its variants alike instead of showing the first as the code.
+   Wikipedia is asked on every lookup, a typed description included, and found by the issuer's
+   name (a Wikipedia search - the strict exact-label check is gone). The model searches the web
+   for every issuer (`core/sources/llm_web.py`, the Responses API's `web_search`, ~0.01 USD a
+   lookup), asked to say who owns or controls it where the sources do - the evidence Q7 lacks.
+   The name shown and exported is the one found (GLEIF, then the web), the typed one beside it.
+   **After deploying**: one production lookup must show "Podle webu (vyhledal model …)" - the
+   Responses API call could not be run against the live endpoint without the key.
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same

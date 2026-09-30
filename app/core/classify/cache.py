@@ -80,11 +80,18 @@ def cache_key(
 
 
 class ClassificationCache(Protocol):
-    """What the classifier needs from a cache."""
+    """What the classifier needs from a cache - and the web search, which keeps its finding
+    as plain text in the same table under the kind ``WEB`` (:mod:`core.sources.llm_web`)."""
 
     def get(self, key: str) -> Classification | None: ...
 
     def put(self, key: str, classification: Classification, *, issuer_name: str | None) -> None: ...
+
+    def get_text(self, key: str) -> str | None: ...
+
+    def put_text(
+        self, key: str, payload: str, *, kind: str, issuer_name: str | None, model: str | None
+    ) -> None: ...
 
 
 class NullCache:
@@ -94,6 +101,14 @@ class NullCache:
         return None
 
     def put(self, key: str, classification: Classification, *, issuer_name: str | None) -> None:
+        return None
+
+    def get_text(self, key: str) -> str | None:
+        return None
+
+    def put_text(
+        self, key: str, payload: str, *, kind: str, issuer_name: str | None, model: str | None
+    ) -> None:
         return None
 
 
@@ -175,6 +190,42 @@ class SqliteCache:
         return _from_payload(row[0]) if row else None
 
     def put(self, key: str, classification: Classification, *, issuer_name: str | None) -> None:
+        self._write(
+            key,
+            classification.kind,
+            issuer_name,
+            classification.model,
+            classification.prompt_version,
+            _to_payload(classification),
+        )
+
+    def get_text(self, key: str) -> str | None:
+        if not self._usable:
+            return None
+        try:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT payload FROM classifications WHERE key = ?", (key,)
+                ).fetchone()
+        except sqlite3.Error as exc:
+            LOGGER.warning("cache read failed: %s", exc)
+            return None
+        return str(row[0]) if row else None
+
+    def put_text(
+        self, key: str, payload: str, *, kind: str, issuer_name: str | None, model: str | None
+    ) -> None:
+        self._write(key, kind, issuer_name, model, None, payload)
+
+    def _write(
+        self,
+        key: str,
+        kind: str,
+        issuer_name: str | None,
+        model: str | None,
+        prompt_version: str | None,
+        payload: str,
+    ) -> None:
         if not self._usable:
             return
         try:
@@ -185,12 +236,12 @@ class SqliteCache:
                     "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         key,
-                        classification.kind,
+                        kind,
                         issuer_name,
-                        classification.model,
-                        classification.prompt_version,
+                        model,
+                        prompt_version,
                         None,
-                        _to_payload(classification),
+                        payload,
                         datetime.now(UTC).isoformat(),
                     ),
                 )

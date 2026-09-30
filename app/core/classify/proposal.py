@@ -14,7 +14,9 @@ says the choice is MO's, as before.
 A rule-based proposal is marked as such everywhere it appears: it has no confidence (only
 the model has one), its justification names the rules, and candidates with the same score
 are listed, because a family's control variants always tie and the rules cannot choose
-between veřejné, soukromé národní and pod zahraniční kontrolou.
+between veřejné, soukromé národní and pod zahraniční kontrolou. Such a tie proposes the
+family, not one of its codes: the first variant is only the family's order (foreign control
+first), so the page offers every tied code alike and MO picks one (Q7).
 
 Measured on the 36 real golden issuers (22-23 Sept 2026, provisional): NACE proposed for 35,
 30 of them the expected division; ESA proposed for 26, 21 in the expected family and 14 with
@@ -27,7 +29,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 from core.classify.candidates import HINT_SCORE, REGISTER_SCORE
-from core.classify.hints import split_control
+from core.classify.explain import reasons_cs
+from core.classify.hints import family_name, split_control
 from core.classify.models import (
     ESA,
     Candidate,
@@ -84,26 +87,39 @@ class Proposal:
 
     @property
     def justification(self) -> str:
-        """The model's sentence, or the rules that put the code first."""
+        """The model's sentence, or the rules that put the code first (in Czech)."""
         if isinstance(self.top, Suggestion):
             return self.top.justification
         if self.overridden:
             return (
-                f"Registr má přednost před modelem (model navrhl {self.overridden}): "
-                + "; ".join(self.top.reasons)
+                f"Registr má přednost před modelem (model navrhl {self.overridden}) – "
+                + reasons_cs(self.top.reasons)
                 + "."
             )
-        return "Podle pravidel, bez modelu: " + "; ".join(self.top.reasons) + "."
+        return "Podle pravidel, bez modelu – " + reasons_cs(self.top.reasons) + "."
+
+    @property
+    def choices(self) -> tuple[Suggestion | Candidate, ...]:
+        """The tied codes, this one included, in codebook order; empty when nothing ties."""
+        if not self.tied:
+            return ()
+        tied = (self.top, *(item for item in self.alternatives if item.code in self.tied))
+        return tuple(sorted(tied, key=lambda item: item.code))
+
+    @property
+    def family(self) -> str | None:
+        """The ESA family the tied codes share ("Banky"), or ``None`` when nothing ties."""
+        return family_name(self.top.label) if self.tied else None
 
     @property
     def tie_note(self) -> str | None:
-        """Czech sentence naming the equally scored codes, or ``None`` when nothing ties."""
+        """Czech sentence asking MO to pick one of the tied codes, or ``None``."""
         if not self.tied:
             return None
-        verb = "má" if len(self.tied) == 1 else "mají"
+        codes = ", ".join(item.code for item in self.choices)
         return (
-            f"Stejné skóre {verb} i {', '.join(self.tied)} – pravidla mezi nimi nerozhodují, "
-            "vyberte."
+            f"Pravidla určila skupinu, ne typ kontroly – vyberte jeden z kódů {codes} "
+            "podle toho, kdo emitenta ovládá."
         )
 
 

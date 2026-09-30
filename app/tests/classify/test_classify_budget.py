@@ -56,7 +56,7 @@ class TestPerRequestLimit:
         provider = BudgetedProvider(
             inner, budget=Budget(max_prompt_tokens=10, daily_token_budget=0)
         )
-        with pytest.raises(BudgetExceededError, match="per-request limit"):
+        with pytest.raises(BudgetExceededError, match="na jeden dotaz"):
             provider.complete(prompt())
         assert inner.calls == [], "the request must not reach the provider"
 
@@ -73,7 +73,7 @@ class TestPerRunLimit:
         provider = BudgetedProvider(inner, budget=Budget(max_calls_per_run=3, daily_token_budget=0))
         for _ in range(3):
             provider.complete(prompt())
-        with pytest.raises(BudgetExceededError, match="limit is 3"):
+        with pytest.raises(BudgetExceededError, match="limit je 3"):
             provider.complete(prompt())
         assert len(inner.calls) == 3
 
@@ -96,7 +96,7 @@ class TestDailyBudget:
         ledger.record(model="m", kind="NACE", prompt_tokens=9_900, completion_tokens=50)
         inner = StubLlmProvider(ANSWER)
         provider = BudgetedProvider(inner, budget=Budget(daily_token_budget=10_000), ledger=ledger)
-        with pytest.raises(BudgetExceededError, match="daily budget"):
+        with pytest.raises(BudgetExceededError, match="denní limit"):
             provider.complete(prompt())
         assert inner.calls == []
 
@@ -133,7 +133,7 @@ class TestDailyBudget:
         provider = BudgetedProvider(
             inner, budget=Budget(daily_token_budget=100_000), ledger=NullLedger()
         )
-        with pytest.raises(BudgetExceededError, match="cannot be enforced"):
+        with pytest.raises(BudgetExceededError, match="nelze vynutit"):
             provider.complete(prompt())
         assert inner.calls == []
 
@@ -143,7 +143,7 @@ class TestDailyBudget:
         (tmp_path / "usage.sqlite3").write_bytes(b"not a database")
         inner = StubLlmProvider(ANSWER)
         provider = BudgetedProvider(inner, budget=Budget(daily_token_budget=100_000), ledger=ledger)
-        with pytest.raises(BudgetExceededError, match="could not be read"):
+        with pytest.raises(BudgetExceededError, match="nelze přečíst"):
             provider.complete(prompt())
         assert inner.calls == []
 
@@ -285,7 +285,7 @@ class TestClassifierBehaviour:
             ranked_set(), issuer_name="A", description="a captive lender"
         )
         assert result.abstained
-        assert "per-request" in result.abstain_reason
+        assert "na jeden dotaz" in result.abstain_reason
 
 
 class TestTheVercelConfiguration:
@@ -333,7 +333,7 @@ class TestTheVercelConfiguration:
     def test_the_per_request_limit_still_applies_there(self) -> None:
         classifier, seen = self._classifier(llm_daily_token_budget=0, llm_max_prompt_tokens=10)
         result = classifier.classify(ranked_set(), issuer_name="A", description="a captive lender")
-        assert result.abstained and "per-request" in (result.abstain_reason or "")
+        assert result.abstained and "na jeden dotaz" in (result.abstain_reason or "")
         assert seen == []
 
 

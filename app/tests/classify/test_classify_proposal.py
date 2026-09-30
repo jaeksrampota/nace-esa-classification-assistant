@@ -64,8 +64,8 @@ class TestRulesBasis:
     def test_a_rule_proposal_names_the_rules(self) -> None:
         proposal = propose(ABSTAINED, RULED)
         assert proposal is not None
-        assert proposal.justification.startswith("Podle pravidel, bez modelu:")
-        assert "register: x" in proposal.justification
+        assert proposal.justification.startswith("Podle pravidel, bez modelu –")
+        assert "registr: x" in proposal.justification
 
     def test_the_rest_of_the_shortlist_are_the_alternatives(self) -> None:
         proposal = propose(ABSTAINED, RULED)
@@ -103,8 +103,23 @@ class TestTies:
         assert proposal.code == "2002213"
         assert proposal.tied == ("2002212", "2002211")
         assert proposal.tie_note == (
-            "Stejné skóre mají i 2002212, 2002211 – pravidla mezi nimi nerozhodují, vyberte."
+            "Pravidla určila skupinu, ne typ kontroly – vyberte jeden z kódů "
+            "2002211, 2002212, 2002213 podle toho, kdo emitenta ovládá."
         )
+
+    def test_a_tie_proposes_the_family_and_offers_every_variant_alike(self) -> None:
+        """The first variant is only the family's order (foreign control first), so the page
+        names the family and lists the tied codes in codebook order, none pre-selected."""
+        proposal = propose(Classification(kind=ESA, abstained=True), BANKS)
+        assert proposal is not None
+        assert proposal.family == "Banky"
+        assert tuple(item.code for item in proposal.choices) == ("2002211", "2002212", "2002213")
+        assert tuple(item.cts_id for item in proposal.choices) == ("633", "634", "635")
+
+    def test_without_a_tie_there_is_no_family_and_no_choice(self) -> None:
+        proposal = propose(ABSTAINED, RULED)
+        assert proposal is not None
+        assert proposal.family is None and proposal.choices == ()
 
     def test_rules_for_two_families_tying_propose_nothing(self, codebooks: CodebookSet) -> None:
         """The classic trap: "bank" and "captive" score alike for an English captive vehicle,
@@ -123,7 +138,7 @@ class TestTies:
         )
         assert propose(ABSTAINED, pair) is None
 
-    def test_one_tied_code_reads_in_the_singular(self) -> None:
+    def test_a_family_of_two_variants_offers_both(self) -> None:
         pair = _set(
             ESA,
             Candidate(
@@ -143,8 +158,10 @@ class TestTies:
         )
         proposal = propose(Classification(kind=ESA, abstained=True), pair)
         assert proposal is not None
+        assert proposal.family == "Kaptivní finanční instituce a půjčovatelé peněz"
         assert proposal.tie_note == (
-            "Stejné skóre má i 2002702 – pravidla mezi nimi nerozhodují, vyberte."
+            "Pravidla určila skupinu, ne typ kontroly – vyberte jeden z kódů "
+            "2002702, 2002703 podle toho, kdo emitenta ovládá."
         )
 
     def test_a_clear_winner_has_no_tie_note(self, codebooks: CodebookSet) -> None:

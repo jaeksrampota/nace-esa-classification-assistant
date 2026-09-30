@@ -18,6 +18,7 @@ from core.export.columns import SUGGESTION_COLUMNS, SUGGESTION_TEXT_COLUMNS, sug
 from core.sources.base import Provenance
 from core.sources.gleif import LeiRecord, ParentEntity
 from core.sources.identity import NO_IDENTITY, IssuerIdentity
+from core.sources.llm_web import LlmWebSearch
 from core.sources.web import EvidenceSource, SearchHit, StaticSearchProvider, WebEvidenceGatherer
 from core.sources.wikimedia import WikimediaSource
 from core.suggest import SuggestionRequest, SuggestionService
@@ -182,11 +183,19 @@ class TestIsinAlone:
 
 
 class TestPrecedence:
-    def test_a_typed_name_wins_over_the_register(self) -> None:
+    def test_the_register_name_wins_over_a_typed_one(self) -> None:
+        """The brief's "Jméno emitenta" is the name found (30 Sept 2026, reversing the typed
+        name first); a typed spelling of the same name is not shown twice."""
         svc, _, _ = service()
         suggestion = svc.suggest(SuggestionRequest(isin=ISIN, name="BMW Finance NV"))
-        assert suggestion.issuer_name == "BMW Finance NV"
-        assert suggestion.identity.legal_name == LEGAL_NAME
+        assert suggestion.issuer_name == LEGAL_NAME
+        assert suggestion.typed_name_apart is None  # the same name, spelt differently
+
+    def test_a_different_typed_name_is_shown_beside_the_found_one(self) -> None:
+        svc, _, _ = service()
+        suggestion = svc.suggest(SuggestionRequest(isin=ISIN, name="BMW"))
+        assert suggestion.issuer_name == LEGAL_NAME
+        assert suggestion.typed_name_apart == "BMW"
 
     def test_a_typed_description_is_kept_and_the_facts_are_appended(self) -> None:
         svc, _, stub = service()
@@ -255,6 +264,48 @@ class TestPrecedence:
         assert suggestion.source_label == "WEB"
 
 
+class TestWebSearch:
+    """The model's web search on every lookup (Jakub, 30 Sept 2026: "use llm for each")."""
+
+    WEB = "NÁZEV: Kongsberg Gruppen ASA\nPOPIS: Norská skupina obranných a námořních systémů."
+
+    def _service(self, identity: IssuerIdentity = NO_IDENTITY):
+        provider = StubLlmProvider(
+            {"WEB": self.WEB, "NACE": answer("64"), "ESA": answer("2002703")},
+            citations=(("https://www.kongsberg.com/", "Kongsberg"),),
+        )
+        svc, _, _ = service(identity, provider=provider)
+        return (
+            SuggestionService(
+                build_codebooks(),
+                gatherer=svc._gatherer,
+                classifier=svc._classifier,
+                identifier=svc._identifier,
+                web_search=LlmWebSearch(provider),
+            ),
+            provider,
+        )
+
+    def test_the_finding_joins_the_description_and_the_model_reads_it(self) -> None:
+        svc, provider = self._service()
+        suggestion = svc.suggest(SuggestionRequest(name="kongsberg"))
+        assert provider.calls[0].kind == "WEB"  # searched first, then classified
+        assert "Podle webu (vyhledal model stub-model): Norská skupina" in suggestion.description
+        # The classification read it (the test codebook shortlists no NACE division here).
+        assert any("Norská skupina" in prompt.user for prompt in provider.calls[1:])
+        assert "https://www.kongsberg.com/" in [s.url for s in suggestion.evidence_sources]
+
+    def test_the_name_it_found_is_the_issuer_and_the_typed_one_is_shown_apart(self) -> None:
+        svc, _ = self._service()
+        suggestion = svc.suggest(SuggestionRequest(name="kongsberg"))
+        assert suggestion.issuer_name == "Kongsberg Gruppen ASA"
+        assert suggestion.typed_name_apart == "kongsberg"
+
+    def test_the_register_name_still_comes_first(self) -> None:
+        svc, _ = self._service(BMW_IDENTITY)
+        assert svc.suggest(SuggestionRequest(isin=ISIN)).issuer_name == LEGAL_NAME
+
+
 class TestRow:
     def test_the_row_carries_the_lei_the_country_and_the_sources(self) -> None:
         svc, _, _ = service()
@@ -304,7 +355,7 @@ class TestDeadline:
         svc, stub = self._service(register_seconds=45.0)
         suggestion = svc.suggest(SuggestionRequest(isin=ISIN))
         assert stub.calls == []
-        assert "no time left for the model" in (suggestion.nace.abstain_reason or "")
+        assert "na model nezbyl čas" in (suggestion.nace.abstain_reason or "")
         proposal = suggestion.nace_proposal
         assert proposal is not None and proposal.basis == "rules" and proposal.code == "64"
 

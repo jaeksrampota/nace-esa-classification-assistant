@@ -240,14 +240,15 @@ class Settings(BaseSettings):
     # {lang}.wikipedia.org. Wikimedia refuses a User-Agent without contact (WEB_USER_AGENT).
     wikimedia_enabled: bool = Field(
         default=True,
-        description="Describe an issuer with a LEI from Wikidata and Wikipedia when no "
-        "description was typed. Also off when WEB_ENABLED is false.",
+        description="Describe every issuer from Wikidata and Wikipedia, by LEI or by name; a "
+        "typed description stays first and Wikipedia's lead follows it. Also off when "
+        "WEB_ENABLED is false.",
     )
     wikimedia_name_match: bool = Field(
         default=True,
-        description="When no Wikidata item carries the LEI (or there is none), accept the one "
-        "item whose label or alias exactly equals the official name and that carries no other "
-        "entity's LEI. Off: the identifier only.",
+        description="When no Wikidata item carries the LEI (or there is none), search Wikipedia "
+        "for the issuer's name and take the first article whose title shares a word with it "
+        "(no uniqueness test since 30 Sept 2026). Off: the identifier only.",
     )
     wikipedia_languages: str = Field(
         default="cs,en",
@@ -337,6 +338,30 @@ class Settings(BaseSettings):
         description=(
             "Ceiling on generated tokens. Three picks with one Czech sentence each need a "
             "few hundred; the cap stops a rambling model being billed for rambling."
+        ),
+    )
+    llm_web_search: bool = Field(
+        default=True,
+        description=(
+            "Let the model search the web for every issuer (OpenAI Responses API, `web_search` "
+            "tool): its Czech summary joins the description and the pages it cites join the "
+            "evidence. Only with a model configured. About 0.01 USD per search on top of the "
+            "tokens (30 Sept 2026)."
+        ),
+    )
+    llm_web_reasoning_effort: str | None = Field(
+        default="low",
+        description=(
+            "`reasoning.effort` for the web search call. OpenAI: web search does not work with "
+            "gpt-5's 'minimal', and 'none' may give weaker results. Empty means not sent."
+        ),
+    )
+    llm_web_max_output_tokens: int = Field(
+        default=2000,
+        ge=200,
+        description=(
+            "Ceiling on the web search call's output; its reasoning tokens count against it, so "
+            "it is larger than LLM_MAX_OUTPUT_TOKENS."
         ),
     )
     lookup_deadline_seconds: float = Field(

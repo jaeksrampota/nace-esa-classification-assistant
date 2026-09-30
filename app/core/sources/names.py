@@ -109,4 +109,17 @@ def names_agree(typed: str, *known: str | None) -> bool:
     return False
 
 
-__all__ = ["LEGAL_FORM_RE", "fold", "legal_form_key", "names_agree", "strip_legal_form"]
+def shared_words(typed: str, known: str) -> int:
+    """How many distinctive words ``known`` shares with ``typed``: "Kongsberg Gruppen" shares
+    two with "Kongsberg Gruppen ASA", the town "Kongsberg" one - a ranking, not a verdict."""
+    return len({w for w in _words(typed) if w not in _GENERIC} & set(_words(known)))
+
+
+__all__ = [
+    "LEGAL_FORM_RE",
+    "fold",
+    "legal_form_key",
+    "names_agree",
+    "shared_words",
+    "strip_legal_form",
+]

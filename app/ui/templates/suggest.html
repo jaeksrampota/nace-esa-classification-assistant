@@ -222,7 +222,7 @@
     margin: 0.8rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.84rem; max-width: 90ch;
   }
   .issuer ul.identity li { margin-bottom: 0.15rem; }
-  .issuer p.desc { margin: 0.9rem 0 0; max-width: 75ch; }
+  .issuer p.desc { margin: 0.9rem 0 0; max-width: 75ch; white-space: pre-line; }
 
   /* ---- suggestion panels ---- */
   .panels { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
@@ -419,26 +419,41 @@
       <div class="codebook">{{ codebook }}</div>
       {% if proposal %}
         <div class="pick">
-          <div class="pick-title">navrhovaný kód</div>
+          <div class="pick-title">{% if proposal.tied %}navrhovaná skupina{% else %}navrhovaný kód{% endif %}</div>
           <div class="code-row">
+            {% if not proposal.tied %}
             <span class="code">{{ proposal.code }}</span>
             <span class="ctsid">CTS ID {{ proposal.cts_id }}</span>
+            {% endif %}
             {% if proposal.basis == 'model' %}
             <span class="conf {{ {'high':'hi','medium':'mid','low':'lo'}[proposal.confidence] }}">
               jistota {{ {'high':'vysoká','medium':'střední','low':'nízká'}[proposal.confidence] }}
             </span>
             {% else %}
-            <span class="conf mid">podle pravidel · ověřte</span>
+            <span class="conf mid">podle pravidel · {% if proposal.tied %}vyberte kód{% else %}ověřte{% endif %}</span>
             {% endif %}
           </div>
-          <div class="label">{{ proposal.label }}</div>
+          <div class="label">{{ proposal.family or proposal.label }}</div>
+          <div class="why"><strong>Jak rozhodl:</strong> {{ decision_cs(proposal, classification, candidates) }}</div>
           {% if proposal.justification %}<div class="why">{{ proposal.justification }}</div>{% endif %}
           {% if proposal.tie_note %}<div class="why tie">{{ proposal.tie_note }}</div>{% endif %}
-          {{ choose(field, proposal.code, not proposal.tied) }}
+          {% for choice in proposal.choices %}
+          <div class="alt">
+            <div class="code-row">
+              <span class="code">{{ choice.code }}</span>
+              <span class="ctsid">CTS ID {{ choice.cts_id }}</span>
+            </div>
+            <div class="label">{{ choice.label }}</div>
+            {{ choose(field, choice.code) }}
+          </div>
+          {% else %}
+          {{ choose(field, proposal.code, true) }}
+          {% endfor %}
         </div>
-        {% if proposal.alternatives %}
+        {% set others = proposal.alternatives|rejectattr('code', 'in', proposal.tied)|list %}
+        {% if others %}
         <p class="alts-title">{% if proposal.basis == 'model' %}další kandidáti{% else %}další kandidáti ze zúženého číselníku ({{ candidates|length }} z {{ candidates.considered }}){% endif %}</p>
-        {% for alt in proposal.alternatives %}
+        {% for alt in others %}
         <div class="alt">
           <div class="code-row">
             <span class="code">{{ alt.code }}</span>
@@ -453,7 +468,7 @@
           {% if proposal.basis == 'model' %}
             {% if alt.justification %}<div class="why">{{ alt.justification }}</div>{% endif %}
           {% elif alt.justification %}<div class="why">{{ alt.justification }}</div>
-          {% elif alt.reasons %}<div class="why">{{ alt.reasons|join('; ') }}</div>{% endif %}
+          {% elif alt.reasons %}<div class="why">{{ alt.reasons|reasons_cs }}</div>{% endif %}
           {{ choose(field, alt.code) }}
         </div>
         {% endfor %}
@@ -478,7 +493,7 @@
       {% else %}
         <div class="abstain">
           <strong>Kód nelze spolehlivě určit — výběr je na vás.</strong><br>
-          {{ classification.abstain_reason or 'Podklady nestačily k rozhodnutí.' }}
+          Jak rozhodl: {{ decision_cs(proposal, classification, candidates) }}
         </div>
         {% if candidates and candidates|length %}
         <p class="alts-title">zúžený číselník ({{ candidates|length }} z {{ candidates.considered }})</p>
@@ -489,7 +504,7 @@
             <span class="ctsid">CTS ID {{ candidate.cts_id }}</span>
           </div>
           <div class="label">{{ candidate.label }}</div>
-          {% if candidate.reasons %}<div class="why">{{ candidate.reasons|join('; ') }}</div>{% endif %}
+          {% if candidate.reasons %}<div class="why">{{ candidate.reasons|reasons_cs }}</div>{% endif %}
           {{ choose(field, candidate.code) }}
         </div>
         {% endfor %}
@@ -503,6 +518,7 @@
     <div class="card issuer">
       <span class="kicker">Emitent</span>
       <h2>{{ suggestion.issuer_name or 'Emitent neurčen' }}</h2>
+      {% if suggestion.typed_name_apart %}<div class="meta">zadaný název: {{ suggestion.typed_name_apart }}</div>{% endif %}
       <div class="meta">
         {% if suggestion.request.isin %}ISIN {{ suggestion.request.isin }} · {% endif %}
         {% if suggestion.identity.lei %}LEI {{ suggestion.identity.lei }} · {% endif %}

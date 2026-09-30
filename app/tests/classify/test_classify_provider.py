@@ -164,6 +164,96 @@ class TestRequestShape:
         assert roles == ["system", "user"]
 
 
+def web_answer(text: str = "NÁZEV: X\nPOPIS: Banka.", *, cited: bool = True) -> dict:
+    """A Responses API answer after a web search (shape per the web-search guide)."""
+    annotations = (
+        [{"type": "url_citation", "url": "https://x.example/about", "title": "About X"}]
+        if cited
+        else []
+    )
+    return {
+        "model": "test-model",
+        "status": "completed",
+        "output": [
+            {
+                "type": "web_search_call",
+                "status": "completed",
+                "action": {
+                    "type": "search",
+                    "query": "X",
+                    "sources": [{"url": "https://x.example/"}, {"url": "https://wiki.example/X"}],
+                },
+            },
+            {
+                "type": "message",
+                "content": [{"type": "output_text", "text": text, "annotations": annotations}],
+            },
+        ],
+        "usage": {
+            "input_tokens": 5200,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 180,
+        },
+    }
+
+
+class TestWebSearch:
+    """The web search goes to the Responses API with the web_search tool (30 Sept 2026)."""
+
+    @staticmethod
+    def search_prompt():
+        from core.sources.llm_web import web_prompt
+
+        return web_prompt(
+            name="X AG", isin="DE0000000000", lei=None, country="DE", instrument=None, typed=None
+        )
+
+    def test_the_request_asks_for_a_forced_search_away_from_the_czech_registers(self) -> None:
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["path"] = request.url.path
+            seen.update(json.loads(request.content))
+            return httpx.Response(200, json=web_answer())
+
+        provider_with(handler).complete(self.search_prompt())
+        assert seen["path"] == "/v1/responses"
+        (tool,) = seen["tools"]
+        assert tool["type"] == "web_search"
+        assert "or.justice.cz" in tool["filters"]["blocked_domains"]
+        assert seen["tool_choice"] == "required"
+        assert seen["include"] == ["web_search_call.action.sources"]
+        assert seen["reasoning"] == {"effort": "low"}
+        assert "temperature" not in seen and "response_format" not in seen
+        assert "ISIN: DE0000000000" in seen["input"]
+        assert seen["instructions"].startswith("Jsi rešeršista")
+
+    def test_the_text_the_cited_pages_and_the_tokens_are_read(self) -> None:
+        response = provider_with(lambda request: httpx.Response(200, json=web_answer())).complete(
+            self.search_prompt()
+        )
+        assert response.content == "NÁZEV: X\nPOPIS: Banka."
+        assert response.citations == (("https://x.example/about", "About X"),)
+        assert (response.prompt_tokens, response.completion_tokens) == (5200, 180)
+
+    def test_with_no_citation_the_consulted_pages_stand_in(self) -> None:
+        answer = web_answer(cited=False)
+        response = provider_with(lambda request: httpx.Response(200, json=answer)).complete(
+            self.search_prompt()
+        )
+        assert [url for url, _ in response.citations] == [
+            "https://x.example/",
+            "https://wiki.example/X",
+        ]
+
+    def test_an_answer_without_text_is_a_response_error(self) -> None:
+        empty = {**web_answer(), "output": [], "status": "incomplete"}
+        with pytest.raises(LlmResponseError, match="no text"):
+            provider_with(lambda request: httpx.Response(200, json=empty)).complete(
+                self.search_prompt()
+            )
+
+
 class TestResponseReading:
     def test_content_and_model_are_returned(self) -> None:
         response = provider_with(lambda r: httpx.Response(200, json=chat_response())).complete(
@@ -434,6 +524,13 @@ class TestSqliteCache:
     def test_build_cache_honours_the_off_switch(self, tmp_path: Path) -> None:
         assert isinstance(build_cache(None), NullCache)
         assert isinstance(build_cache(tmp_path / "c.sqlite3"), SqliteCache)
+
+    def test_a_web_finding_is_kept_as_text(self, tmp_path: Path) -> None:
+        cache = SqliteCache(tmp_path / "c.sqlite3")
+        assert cache.get_text("w") is None
+        cache.put_text("w", '{"x": 1}', kind="WEB", issuer_name="N", model="m")
+        assert cache.get_text("w") == '{"x": 1}'
+        assert NullCache().get_text("w") is None
 
 
 class TestCacheUse:
