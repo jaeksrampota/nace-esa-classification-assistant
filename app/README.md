@@ -660,6 +660,10 @@ vercel deploy
 vercel deploy --prod
 ```
 
+A CLI deploy whose commit author is not a member of the (Hobby) team - the repository owner's
+commits, for one - ends `BLOCKED`. Deploy such a commit through the Vercel API instead, with a
+`gitSource` naming this repository, `main` and the commit's SHA (roadmap E1, 30 Sept 2026).
+
 Never `vercel build` or `vercel deploy --prebuilt` from a checkout that holds `app/.env` or the
 xlsx files: the builder bundles whatever is on disk.
 
