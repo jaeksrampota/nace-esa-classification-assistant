@@ -412,6 +412,14 @@ class TestWarnings:
         assert not any("vyhledáváním modelem" in warning for warning in warnings)  # no model
         assert not any("WEB_SEARCH_URL" in warning for warning in warnings)
 
+    def test_the_banner_names_the_registers_that_come_first(self) -> None:
+        warnings = api._warnings(Settings(llm_api_key=None, web_search_url=None))
+        assert any(
+            w.startswith("Emitenta nástroj u každého dotazu nejdřív dohledá v registrech (GLEIF, ")
+            for w in warnings
+        )
+        assert not any("seznamy ECB" in w for w in warnings)  # no database, no ECB lists
+
     def test_with_a_model_the_banner_says_it_searches_the_web_too(self) -> None:
         warnings = api._warnings(Settings(llm_api_key="sk-test", web_search_url=None))
         assert any(

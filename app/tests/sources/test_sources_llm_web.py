@@ -13,7 +13,7 @@ from core.classify.llm import LlmClassifier
 from core.classify.prompts import Prompt
 from core.classify.provider import LlmResponse, NullLlmProvider, StubLlmProvider
 from core.sources.llm_web import LlmWebSearch, build_web_search, parse_answer, web_prompt
-from core.sources.web import BLOCKED_HOSTS, IssuerEvidence
+from core.sources.web import BLOCKED_HOSTS, NO_SEARCH_PROVIDER_NOTE, IssuerEvidence
 
 ANSWER = (
     "NÁZEV: Kongsberg Gruppen ASA\n"
@@ -140,6 +140,14 @@ class TestEnrich:
         enriched = LlmWebSearch(stub("NENALEZENO")).enrich(evidence, name="X", isin=None, lei=None)
         assert enriched.description == "Zadaný popis."
         assert enriched.notes[-1] == "model stub-model emitenta na webu nenašel"
+
+    @pytest.mark.parametrize("answer", [ANSWER, "NENALEZENO"])
+    def test_the_no_search_provider_note_goes_the_web_is_searched(self, answer: str) -> None:
+        # Live, 30 Sept 2026: "není zapojené" stood next to "popis doplněn z webu".
+        evidence = IssuerEvidence(query="x", notes=("a", NO_SEARCH_PROVIDER_NOTE))
+        enriched = LlmWebSearch(stub(answer)).enrich(evidence, name="X", isin=None, lei=None)
+        assert NO_SEARCH_PROVIDER_NOTE not in enriched.notes
+        assert enriched.notes[0] == "a"
 
     def test_nothing_to_search_for_asks_nothing(self) -> None:
         provider = stub()

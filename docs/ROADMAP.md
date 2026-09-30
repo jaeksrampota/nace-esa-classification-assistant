@@ -125,8 +125,9 @@ optional.
    for every issuer (`core/sources/llm_web.py`, the Responses API's `web_search`, ~0.01 USD a
    lookup), asked to say who owns or controls it where the sources do - the evidence Q7 lacks.
    The name shown and exported is the one found (GLEIF, then the web), the typed one beside it.
-   **After deploying**: one production lookup must show "Podle webu (vyhledal model …)" - the
-   Responses API call could not be run against the live endpoint without the key.
+   **Deployed 30 Sept 2026** (PR #24, `main` `7fbf8cd`) and checked live: the web search answers
+   (iShares, Kongsberg, Deutsche Bank), and it found Kongsberg's 50 % state ownership, so ESA
+   came out "veřejné" with high confidence - Q7 answered from the web for the first time.
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same

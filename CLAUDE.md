@@ -246,8 +246,12 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
   * Starts only if a classification call still fits after it (`2 × call_seconds` left before
     `LOOKUP_DEADLINE_SECONDS`), else a note. Fail-soft: no model = no call and no note
     (`build_web_search` returns `None`), a failed call = a note. `LLM_WEB_SEARCH=false` turns
-    it off. **Not yet exercised against the live API** (no key off Vercel): check a production
-    lookup for the "Podle webu" paragraph after deploying.
+    it off. It drops the gatherer's `NO_SEARCH_PROVIDER_NOTE` - the web *is* searched.
+  * **Live since 30 Sept 2026** (`main` `7fbf8cd`), checked signed in: iShares Core MSCI World
+    (no Wikipedia) got "…spravován BlackRock Asset Management Ireland, skupina BlackRock", ESA
+    2002403 high; Kongsberg Gruppen got "norský stát vlastní 50,004 % akcií", ESA **2001001
+    veřejné** high (was 2001002 without it); Deutsche Bank "rozptýlení akcionáři", 2002212 high.
+    A lookup takes 17-19 s instead of ~11; cited URLs carry OpenAI's `utm_source=openai`.
 - **ECB lists** (`ecb.py`, 29 Sept 2026): the LEI from GLEIF is looked up in the ECB's lists of
   financial institutions - MFI (central banks, credit institutions, MMFs, other deposit-takers),
   IF, FVC, IC, PF - loaded into the central database's `ecb_institutions` table by `python -m
