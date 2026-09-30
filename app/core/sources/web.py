@@ -462,7 +462,7 @@ class WebEvidenceGatherer:
             notes.append("some results were skipped: the Czech registers must not be scraped")
         if not usable:
             if self._provider.name == "none":
-                notes.append("no search provider configured; supply a description instead")
+                notes.append("vyhledávání na webu není zapojené – popis činnosti zadejte ručně")
             else:
                 notes.append("no usable search result")
             return IssuerEvidence(query=query, provenance=provenance, notes=tuple(notes))

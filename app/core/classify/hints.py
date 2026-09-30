@@ -140,6 +140,11 @@ def _family_display(name: str, family: str) -> str:
     return _TRAILING_JUNK.sub("", stripped[: len(family)]) or stripped
 
 
+def family_name(name: str) -> str:
+    """A BA0036 name without its control suffix, accents and case kept: "Banky veřejné" -> "Banky"."""
+    return _family_display(name, split_control(name)[0])
+
+
 # ---------------------------------------------------------------------------------------
 # Keyword hints. Each entry: trigger words (cs + en) -> what they imply.
 # Reviewable by MO. Codes are validated against the loaded codebook at startup, so a hint

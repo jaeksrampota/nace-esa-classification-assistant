@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -176,6 +177,31 @@ class TestAbstention:
         finally:
             api._state.clear()
 
+    def test_a_tie_of_control_variants_proposes_the_family_not_its_first_code(self) -> None:
+        """Nordkap's ESA: the rules settle the captive family, not who controls it (Q7).
+
+        The first variant is only the family's order (foreign control first); showing it as
+        the proposed code made every tie read "pod zahraniční kontrolou".
+        """
+        codebooks = build_codebooks()
+        api._state["settings"] = Settings(llm_api_key=None, llm_cache_path=None)
+        api._state["service"] = make_service(codebooks, provider=NullLlmProvider())
+        try:
+            page = TestClient(api.app).post("/suggest", data={"name": "Nordkap Funding B.V."}).text
+            assert "navrhovaná skupina" in page
+            assert "podle pravidel · vyberte kód" in page
+            assert "Kaptivní finanční instituce a půjčovatelé peněz</div>" in page
+            assert "vyberte jeden z kódů 2002702, 2002703" in page
+            # Both variants offered once each, in codebook order, neither pre-selected ...
+            assert page.count('name="esa" value="2002702"') == 1
+            assert page.count('name="esa" value="2002703"') == 1
+            assert page.index('value="2002702"') < page.index('value="2002703"')
+            assert not re.search(r'name="esa" value="\d+" form="download" checked', page)
+            # ... while NACE, which the rules did settle, keeps its proposed code.
+            assert 'name="nace" value="64" form="download" checked' in page
+        finally:
+            api._state.clear()
+
     def test_the_json_names_the_basis_of_each_proposal(self) -> None:
         codebooks = build_codebooks()
         api._state["settings"] = Settings(llm_api_key=None, llm_cache_path=None)
@@ -190,6 +216,9 @@ class TestAbstention:
             assert ruled["row"]["NACE_code"] == "64"
             assert ruled["row"]["NACE_confidence"] is None
             assert ruled["row"]["NACE_justification"].startswith("Podle pravidel, bez modelu")
+            # ESA ties two control variants: no code, and the label names the family only.
+            assert ruled["row"]["ESA_code"] is None
+            assert ruled["row"]["ESA_label"] == "Kaptivní finanční instituce a půjčovatelé peněz"
 
             unruled = client.post("/api/suggest", json={"description": UNRULED}).json()
             assert unruled["nace"]["proposal"] is None

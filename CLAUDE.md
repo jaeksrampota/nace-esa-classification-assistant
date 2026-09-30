@@ -254,15 +254,18 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
   **before** ranking, whenever the family would not *fit* in the limit (29 Sept 2026: it used to
   check only "matched at all", so a weak match was ranked last and cut - 47 of 108 test lookups).
   With `[ECB_NONE]` + `[GENERAL]` and no financial/public keyword, `register_esa_families`
-  settles it as a register rule. A rules proposal that ties control variants leaves the row's
-  code empty and the page's radio unchecked: the first variant is only the codebook's order. Appending afterwards is not enough — an industrial issuer whose description
+  settles it as a register rule. A rules proposal that ties control variants proposes the
+  family, not a code: the page shows the family and every tied variant alike (codebook order, no
+  radio checked), the row's code stays empty and its label names the family - the first variant is
+  only the family's order (30 Sept 2026: the page used to show it as the navrhovaný kód). Appending afterwards is not enough — an industrial issuer whose description
   says only "bonds" and "finance" loses every slot to financial families. Measured: 20% of ESA
   recall. Do not turn it into a plain fallback.
 - **Navrhovaný kód** (`proposal.py`): the model's first pick; with no model answer, the
   shortlist's first candidate **only if a rule put it there** (score ≥ 5; lexical stops at 1.0)
   **and no rule for another code or ESA family ties with it** — the captive trap, where "bank"
   and "captive" tie and the alphabet would pick the bank. A rule's proposal has no confidence,
-  names its rules and lists tied variants. `answered` still means the model answered.
+  names its rules and, for a tie of control variants, offers them as `choices` under its
+  `family` ("navrhovaná skupina"). `answered` still means the model answered.
 - **The classifier** (`llm.py`, `prompts.py`): the JSON schema pins `code` to an enum of exactly
   the shortlisted codes; `_accept()` re-checks and builds the Suggestion **from the candidate**,
   so CTS ID and label come from the codebook and cannot be invented. Every failure path — no

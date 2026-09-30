@@ -23,7 +23,9 @@ codebook to about a dozen candidates, each with its CTS ID resolved, and the mod
 confidence and a one-sentence reason. When the model is off or declines - typically ESA when
 the evidence does not say who owns the issuer - the deterministic result stands: where a rule
 decided - a GLEIF category or a keyword - the first candidate is shown as the **navrhovaný kód**,
-marked "podle pravidel · ověřte" and without a confidence; where only text similarity ranks the
+marked "podle pravidel · ověřte" and without a confidence; where a rule settles only an ESA
+family, its control variants are offered alike as the **navrhovaná skupina** ("podle pravidel ·
+vyberte kód"); where only text similarity ranks the
 list, or rules for two codes tie, nothing is proposed and the panel says the choice is MO's. The
 page and the xlsx carry the same proposal and the whole shortlist; a person confirms every code.
 

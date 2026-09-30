@@ -212,9 +212,10 @@ class TestThinResults:
         assert "disabled" in evidence.notes[0]
 
     def test_no_provider_configured(self) -> None:
+        """MO reads this note on the page, so it is Czech and says what to do."""
         evidence = WebEvidenceGatherer(settings(), provider=NullSearchProvider()).gather(name="X")
         assert not evidence.has_description
-        assert any("no search provider" in note for note in evidence.notes)
+        assert "vyhledávání na webu není zapojené – popis činnosti zadejte ručně" in evidence.notes
 
     def test_search_failure_is_reported_not_raised(self) -> None:
         class Failing:

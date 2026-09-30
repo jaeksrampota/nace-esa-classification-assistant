@@ -419,26 +419,40 @@
       <div class="codebook">{{ codebook }}</div>
       {% if proposal %}
         <div class="pick">
-          <div class="pick-title">navrhovaný kód</div>
+          <div class="pick-title">{% if proposal.tied %}navrhovaná skupina{% else %}navrhovaný kód{% endif %}</div>
           <div class="code-row">
+            {% if not proposal.tied %}
             <span class="code">{{ proposal.code }}</span>
             <span class="ctsid">CTS ID {{ proposal.cts_id }}</span>
+            {% endif %}
             {% if proposal.basis == 'model' %}
             <span class="conf {{ {'high':'hi','medium':'mid','low':'lo'}[proposal.confidence] }}">
               jistota {{ {'high':'vysoká','medium':'střední','low':'nízká'}[proposal.confidence] }}
             </span>
             {% else %}
-            <span class="conf mid">podle pravidel · ověřte</span>
+            <span class="conf mid">podle pravidel · {% if proposal.tied %}vyberte kód{% else %}ověřte{% endif %}</span>
             {% endif %}
           </div>
-          <div class="label">{{ proposal.label }}</div>
+          <div class="label">{{ proposal.family or proposal.label }}</div>
           {% if proposal.justification %}<div class="why">{{ proposal.justification }}</div>{% endif %}
           {% if proposal.tie_note %}<div class="why tie">{{ proposal.tie_note }}</div>{% endif %}
-          {{ choose(field, proposal.code, not proposal.tied) }}
+          {% for choice in proposal.choices %}
+          <div class="alt">
+            <div class="code-row">
+              <span class="code">{{ choice.code }}</span>
+              <span class="ctsid">CTS ID {{ choice.cts_id }}</span>
+            </div>
+            <div class="label">{{ choice.label }}</div>
+            {{ choose(field, choice.code) }}
+          </div>
+          {% else %}
+          {{ choose(field, proposal.code, true) }}
+          {% endfor %}
         </div>
-        {% if proposal.alternatives %}
+        {% set others = proposal.alternatives|rejectattr('code', 'in', proposal.tied)|list %}
+        {% if others %}
         <p class="alts-title">{% if proposal.basis == 'model' %}další kandidáti{% else %}další kandidáti ze zúženého číselníku ({{ candidates|length }} z {{ candidates.considered }}){% endif %}</p>
-        {% for alt in proposal.alternatives %}
+        {% for alt in others %}
         <div class="alt">
           <div class="code-row">
             <span class="code">{{ alt.code }}</span>
