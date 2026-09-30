@@ -60,6 +60,12 @@ BLOCKED_HOSTS: Final[frozenset[str]] = frozenset(
 #: Only these schemes are ever fetched.
 ALLOWED_SCHEMES: Final[frozenset[str]] = frozenset({"http", "https"})
 
+#: The note when no search provider is configured. The model's web search
+#: (:mod:`core.sources.llm_web`) drops it: with that on, the web *is* searched.
+NO_SEARCH_PROVIDER_NOTE: Final[str] = (
+    "vyhledávání na webu není zapojené – popis činnosti zadejte ručně"
+)
+
 #: Space, tab and NBSP - deliberately not ``\s``, which would eat the newlines
 #: that keep paragraphs apart. Written unraw so the NBSP stays a visible escape in the
 #: source rather than an invisible character someone removes by accident.
@@ -460,7 +466,7 @@ class WebEvidenceGatherer:
             notes.append("část výsledků vynechána: české registry se nestahují")
         if not usable:
             if self._provider.name == "none":
-                notes.append("vyhledávání na webu není zapojené – popis činnosti zadejte ručně")
+                notes.append(NO_SEARCH_PROVIDER_NOTE)
             else:
                 notes.append("vyhledávání nevrátilo žádný použitelný výsledek")
             return IssuerEvidence(query=query, provenance=provenance, notes=tuple(notes))

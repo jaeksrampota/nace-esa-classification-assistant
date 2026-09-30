@@ -1209,9 +1209,26 @@ def _warnings(settings: Settings) -> list[str]:
             )
             if on
         )
+        # The registers come first on every lookup; the banner names them, or a reader takes
+        # the description sources for the whole story (Jakub asked, 30 Sept 2026).
+        registers = [
+            name
+            for name, on in (
+                ("GLEIF", settings.gleif_enabled),
+                ("ESMA FIRDS", settings.firds_enabled),
+                ("OpenFIGI", settings.openfigi_enabled),
+                ("seznamy ECB", settings.ecb_enabled and settings.database_url is not None),
+            )
+            if on
+        ]
+        found = (
+            f"Emitenta nástroj u každého dotazu nejdřív dohledá v registrech "
+            f"({', '.join(registers)}), popis činnosti pak {where}"
+            if registers
+            else f"Popis činnosti nástroj hledá u každého dotazu {where}"
+        )
         warnings.append(
-            f"Popis činnosti nástroj hledá u každého dotazu {where}; popis, který zadáte, má "
-            "přednost a nalezené informace ho jen doplní."
+            f"{found}; popis, který zadáte, má přednost a nalezené informace ho jen doplní."
         )
     elif not settings.web_search_url:
         warnings.append(

@@ -40,7 +40,13 @@ from core.classify.errors import LlmError, LlmNotConfiguredError
 from core.classify.prompts import Prompt
 from core.classify.provider import LlmProvider, NullLlmProvider
 from core.sources.names import fold
-from core.sources.web import BLOCKED_HOSTS, EvidenceSource, IssuerEvidence, is_blocked
+from core.sources.web import (
+    BLOCKED_HOSTS,
+    NO_SEARCH_PROVIDER_NOTE,
+    EvidenceSource,
+    IssuerEvidence,
+    is_blocked,
+)
 
 if TYPE_CHECKING:
     from config.settings import Settings
@@ -290,9 +296,17 @@ class LlmWebSearch:
         typed: str | None = None,
         deadline: float | None = None,
     ) -> IssuerEvidence:
-        """``evidence`` with the model's finding after its description, its pages and a note."""
+        """``evidence`` with the model's finding after its description, its pages and a note.
+
+        The gatherer's "vyhledávání na webu není zapojené" is dropped whatever the outcome:
+        the web is searched here, and a failure says so in its own note (live, 30 Sept 2026,
+        the two notes stood side by side).
+        """
         if not (name or isin or lei):
             return evidence
+        evidence = replace(
+            evidence, notes=tuple(n for n in evidence.notes if n != NO_SEARCH_PROVIDER_NOTE)
+        )
         finding, note = self.find(
             name=name,
             isin=isin,
