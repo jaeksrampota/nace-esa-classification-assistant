@@ -64,8 +64,8 @@ class TestRulesBasis:
     def test_a_rule_proposal_names_the_rules(self) -> None:
         proposal = propose(ABSTAINED, RULED)
         assert proposal is not None
-        assert proposal.justification.startswith("Podle pravidel, bez modelu:")
-        assert "register: x" in proposal.justification
+        assert proposal.justification.startswith("Podle pravidel, bez modelu –")
+        assert "registr: x" in proposal.justification
 
     def test_the_rest_of_the_shortlist_are_the_alternatives(self) -> None:
         proposal = propose(ABSTAINED, RULED)

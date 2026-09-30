@@ -776,8 +776,10 @@ daily budget is 0 (no usage ledger), so that cap is the backstop.
    - The golden run through the model runs locally (step 3 of the local list), not on Vercel.
 4. **Reading a failure** (the reason on the page, in `nace.reason`, or in the golden run):
    `401` - the key, or an Azure endpoint that wants the `api-key` header (adapter); `400` naming
-   a parameter - the endpoint table; "cannot be enforced" - `LLM_DAILY_TOKEN_BUDGET` is not 0;
-   "no time left for the model" - the registers were slow, the rules' proposal stands.
+   a parameter - the endpoint table; "nelze vynutit" - `LLM_DAILY_TOKEN_BUDGET` is not 0;
+   "na model nezbyl čas" - the registers were slow, the rules' proposal stands. (The reasons
+   are Czech since 30 Sept 2026, as MO reads them; the page's "Jak rozhodl" line says who
+   decided each code.)
 5. **Rollback**: `LLM_ENABLED=false` and redeploy - the tool is back in deterministic mode, with
    the rules' proposals.
 

@@ -123,7 +123,7 @@ class TestSuggestionRow:
         assert row["NACE_cts_id"] == "0455"
         assert row["NACE_confidence"] is None  # only a model has one
         assert row["NACE_justification"] == (
-            "Podle pravidel, bez modelu: keyword: agriculture; text match 0.20."
+            "Podle pravidel, bez modelu – klíčové slovo: agriculture; shoda textu 0,20."
         )
         assert row["NACE_alt1"] == "10 (CTS 0464) – Výroba potravinářských výrobků"
         assert row["NACE_alt2"] is None

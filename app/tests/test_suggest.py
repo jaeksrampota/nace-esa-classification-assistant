@@ -304,7 +304,7 @@ class TestDeadline:
         svc, stub = self._service(register_seconds=45.0)
         suggestion = svc.suggest(SuggestionRequest(isin=ISIN))
         assert stub.calls == []
-        assert "no time left for the model" in (suggestion.nace.abstain_reason or "")
+        assert "na model nezbyl čas" in (suggestion.nace.abstain_reason or "")
         proposal = suggestion.nace_proposal
         assert proposal is not None and proposal.basis == "rules" and proposal.code == "64"
 

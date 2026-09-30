@@ -362,17 +362,18 @@ class BudgetedProvider:
         return self._budget
 
     def _check(self, prompt: Prompt) -> None:
-        """Refuse before spending, naming the limit that would be crossed."""
+        """Refuse before spending, naming the limit that would be crossed (in Czech: the page
+        shows these as the reason the model did not answer)."""
         estimated = prompt.estimated_tokens
         if 0 < self._budget.max_prompt_tokens < estimated:
             raise BudgetExceededError(
-                f"request of ~{estimated:,} tokens exceeds the per-request limit of "
-                f"{self._budget.max_prompt_tokens:,}"
+                f"dotaz má ~{estimated:,} tokenů, víc než limit na jeden dotaz "
+                f"{self._budget.max_prompt_tokens:,} (LLM_MAX_PROMPT_TOKENS)"
             )
         if 0 < self._budget.max_calls_per_run <= self.calls_made:
             raise BudgetExceededError(
-                f"this run has already made {self.calls_made} model call(s), the limit is "
-                f"{self._budget.max_calls_per_run}"
+                f"tento běh už zavolal model {self.calls_made}×, limit je "
+                f"{self._budget.max_calls_per_run} (LLM_MAX_CALLS_PER_RUN)"
             )
         if self._budget.daily_token_budget > 0:
             # A daily cap that cannot be measured is not a cap. Refusing to spend is the
@@ -380,22 +381,23 @@ class BudgetedProvider:
             # case where nobody is watching, so a broken ledger must not quietly remove it.
             if not getattr(self._ledger, "can_track", False):
                 raise BudgetExceededError(
-                    "a daily token budget is configured but usage cannot be recorded, so it "
-                    "cannot be enforced; fix LLM_USAGE_PATH or set LLM_DAILY_TOKEN_BUDGET=0"
+                    "denní limit tokenů je nastaven, ale spotřebu nelze zaznamenat, takže ho "
+                    "nelze vynutit; opravte LLM_USAGE_PATH, nebo nastavte LLM_DAILY_TOKEN_BUDGET=0"
                 )
             totals = self._ledger.totals_since(
                 datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
             )
             if totals is None:
                 raise BudgetExceededError(
-                    "today's usage could not be read, so the daily token budget cannot be "
-                    "enforced; the model is not called until the ledger answers again"
+                    "dnešní spotřebu nelze přečíst, takže denní limit tokenů nelze vynutit; "
+                    "model se nevolá, dokud ledger zase neodpoví"
                 )
             spent = totals.total_tokens
             if spent + estimated > self._budget.daily_token_budget:
                 raise BudgetExceededError(
-                    f"today's usage ({spent:,} tokens) plus this request (~{estimated:,}) "
-                    f"would exceed the daily budget of {self._budget.daily_token_budget:,}"
+                    f"dnešní spotřeba ({spent:,} tokenů) s tímto dotazem (~{estimated:,}) by "
+                    f"překročila denní limit {self._budget.daily_token_budget:,} "
+                    "(LLM_DAILY_TOKEN_BUDGET)"
                 )
 
     def complete(self, prompt: Prompt) -> LlmResponse:

@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from core.classify.candidates import HINT_SCORE, REGISTER_SCORE
+from core.classify.explain import reasons_cs
 from core.classify.hints import family_name, split_control
 from core.classify.models import (
     ESA,
@@ -86,16 +87,16 @@ class Proposal:
 
     @property
     def justification(self) -> str:
-        """The model's sentence, or the rules that put the code first."""
+        """The model's sentence, or the rules that put the code first (in Czech)."""
         if isinstance(self.top, Suggestion):
             return self.top.justification
         if self.overridden:
             return (
-                f"Registr má přednost před modelem (model navrhl {self.overridden}): "
-                + "; ".join(self.top.reasons)
+                f"Registr má přednost před modelem (model navrhl {self.overridden}) – "
+                + reasons_cs(self.top.reasons)
                 + "."
             )
-        return "Podle pravidel, bez modelu: " + "; ".join(self.top.reasons) + "."
+        return "Podle pravidel, bez modelu – " + reasons_cs(self.top.reasons) + "."
 
     @property
     def choices(self) -> tuple[Suggestion | Candidate, ...]:

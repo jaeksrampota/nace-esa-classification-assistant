@@ -169,7 +169,7 @@ class TestAbstention:
             nace_candidates(codebooks), issuer_name="X", description="something vague"
         )
         assert result.abstained
-        assert "insufficient" in result.abstain_reason
+        assert "nestačí" in result.abstain_reason
 
     def test_no_description_means_no_call_at_all(self, codebooks: CodebookSet) -> None:
         """Researching the issuer failed; guessing from the name is exactly what to avoid."""
@@ -192,7 +192,7 @@ class TestAbstention:
             nace_candidates(codebooks), issuer_name="X", description=CAPTIVE_EN
         )
         assert result.abstained
-        assert "no model configured" in result.abstain_reason
+        assert "model není zapojen" in result.abstain_reason
 
     def test_a_model_outage_abstains_rather_than_losing_the_row(
         self, codebooks: CodebookSet
@@ -209,7 +209,7 @@ class TestAbstention:
             nace_candidates(codebooks), issuer_name="X", description=CAPTIVE_EN
         )
         assert result.abstained
-        assert "model call failed" in result.abstain_reason
+        assert "volání modelu selhalo" in result.abstain_reason
 
 
 class TestMalformedAnswers:

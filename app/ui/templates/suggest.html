@@ -434,6 +434,7 @@
             {% endif %}
           </div>
           <div class="label">{{ proposal.family or proposal.label }}</div>
+          <div class="why"><strong>Jak rozhodl:</strong> {{ decision_cs(proposal, classification, candidates) }}</div>
           {% if proposal.justification %}<div class="why">{{ proposal.justification }}</div>{% endif %}
           {% if proposal.tie_note %}<div class="why tie">{{ proposal.tie_note }}</div>{% endif %}
           {% for choice in proposal.choices %}
@@ -467,7 +468,7 @@
           {% if proposal.basis == 'model' %}
             {% if alt.justification %}<div class="why">{{ alt.justification }}</div>{% endif %}
           {% elif alt.justification %}<div class="why">{{ alt.justification }}</div>
-          {% elif alt.reasons %}<div class="why">{{ alt.reasons|join('; ') }}</div>{% endif %}
+          {% elif alt.reasons %}<div class="why">{{ alt.reasons|reasons_cs }}</div>{% endif %}
           {{ choose(field, alt.code) }}
         </div>
         {% endfor %}
@@ -492,7 +493,7 @@
       {% else %}
         <div class="abstain">
           <strong>Kód nelze spolehlivě určit — výběr je na vás.</strong><br>
-          {{ classification.abstain_reason or 'Podklady nestačily k rozhodnutí.' }}
+          Jak rozhodl: {{ decision_cs(proposal, classification, candidates) }}
         </div>
         {% if candidates and candidates|length %}
         <p class="alts-title">zúžený číselník ({{ candidates|length }} z {{ candidates.considered }})</p>
@@ -503,7 +504,7 @@
             <span class="ctsid">CTS ID {{ candidate.cts_id }}</span>
           </div>
           <div class="label">{{ candidate.label }}</div>
-          {% if candidate.reasons %}<div class="why">{{ candidate.reasons|join('; ') }}</div>{% endif %}
+          {% if candidate.reasons %}<div class="why">{{ candidate.reasons|reasons_cs }}</div>{% endif %}
           {{ choose(field, candidate.code) }}
         </div>
         {% endfor %}

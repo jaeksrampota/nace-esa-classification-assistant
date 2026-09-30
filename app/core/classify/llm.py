@@ -108,12 +108,13 @@ class LlmClassifier:
         kind = candidates.kind
         text = (description or "").strip()
 
+        # The reasons are Czech: MO reads them on the page and in the export (30 Sept 2026).
         if not len(candidates):
-            return self._abstain(kind, "no candidate codes to choose from", 0)
+            return self._abstain(kind, "zúžený číselník je prázdný, není z čeho vybírat", 0)
         if not text:
             return self._abstain(
                 kind,
-                "no description available; the issuer could not be researched",
+                "chybí popis činnosti – emitenta se nepodařilo dohledat",
                 len(candidates),
             )
 
@@ -136,9 +137,8 @@ class LlmClassifier:
             if left < self._call_seconds:
                 return self._abstain(
                     kind,
-                    f"no time left for the model: a call can take up to "
-                    f"{self._call_seconds:.0f} s and the lookup has {max(left, 0.0):.0f} s "
-                    "of its limit left (LOOKUP_DEADLINE_SECONDS)",
+                    f"na model nezbyl čas: volání může trvat až {self._call_seconds:.0f} s "
+                    f"a dotazu zbývá {max(left, 0.0):.0f} s z limitu (LOOKUP_DEADLINE_SECONDS)",
                     len(candidates),
                 )
 
@@ -151,10 +151,10 @@ class LlmClassifier:
         try:
             response = self._provider.complete(prompt)
         except LlmNotConfiguredError as exc:
-            return self._abstain(kind, f"no model configured: {exc}", len(candidates))
+            return self._abstain(kind, f"model není zapojen: {exc}", len(candidates))
         except LlmError as exc:
             LOGGER.warning("%s classification failed: %s", kind, exc)
-            return self._abstain(kind, f"model call failed: {exc}", len(candidates))
+            return self._abstain(kind, f"volání modelu selhalo: {exc}", len(candidates))
 
         classification = self._interpret(response, prompt, candidates)
         self._cache.put(key, classification, issuer_name=issuer_name)
@@ -202,13 +202,15 @@ class LlmClassifier:
         try:
             payload = response.parsed()
         except LlmError as exc:
-            return self._abstain(prompt.kind, f"unreadable model answer: {exc}", len(candidates))
+            return self._abstain(
+                prompt.kind, f"odpověď modelu nelze přečíst: {exc}", len(candidates)
+            )
 
         if payload.get("sufficient_evidence") is False:
             return Classification(
                 kind=prompt.kind,
                 abstained=True,
-                abstain_reason="the model judged the evidence insufficient",
+                abstain_reason="model usoudil, že podklady k rozhodnutí nestačí",
                 candidates_considered=len(candidates),
                 model=response.model,
                 prompt_version=prompt.version,
@@ -217,7 +219,9 @@ class LlmClassifier:
 
         picks = payload.get("picks")
         if not isinstance(picks, Sequence) or isinstance(picks, (str, bytes)):
-            return self._abstain(prompt.kind, "model answer had no picks", len(candidates))
+            return self._abstain(
+                prompt.kind, "odpověď modelu neobsahuje žádný kód", len(candidates)
+            )
 
         suggestions: list[Suggestion] = []
         rejected: list[str] = []
@@ -245,7 +249,7 @@ class LlmClassifier:
             return Classification(
                 kind=prompt.kind,
                 abstained=True,
-                abstain_reason="the model returned no usable code",
+                abstain_reason="model nevrátil žádný použitelný kód",
                 candidates_considered=len(candidates),
                 rejected=tuple(rejected),
                 model=response.model,
@@ -354,7 +358,7 @@ def build_classifier(
         ledger=build_ledger(resolved.llm_usage_path, database),
     )
     # The null provider makes no call, so there is nothing to fit into the deadline - and
-    # "no model configured" stays the reason the page shows.
+    # "model není zapojen" stays the reason the page shows.
     call_seconds = 0.0 if isinstance(inner, NullLlmProvider) else worst_case_call_seconds(resolved)
     warn_if_unstartable(resolved, call_seconds)
     return LlmClassifier(

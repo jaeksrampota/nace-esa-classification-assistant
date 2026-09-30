@@ -431,14 +431,18 @@ class WebEvidenceGatherer:
                 provenance=Provenance(
                     source="WEB", retrieved_at=retrieved_at, detail="user-supplied"
                 ),
-                notes=("description supplied by the user; the web was not consulted",),
+                notes=("popis zadal uživatel; web se neprohledával",),
             )
 
         if not query and not lei:
-            return IssuerEvidence(query="", provenance=provenance, notes=("nothing to search for",))
+            return IssuerEvidence(
+                query="", provenance=provenance, notes=("není podle čeho hledat",)
+            )
         if not self._settings.web_enabled:
             return IssuerEvidence(
-                query=query, provenance=provenance, notes=("web lookups are disabled",)
+                query=query,
+                provenance=provenance,
+                notes=("hledání na webu je vypnuté (WEB_ENABLED)",),
             )
 
         notes: list[str] = []
@@ -454,17 +458,17 @@ class WebEvidenceGatherer:
             hits = self._provider.search(query, limit=self._settings.web_max_results)
         except (SourceUnavailableError, SourceResponseError) as exc:
             LOGGER.warning("web search failed for %r: %s", query, exc)
-            notes.append(f"search failed: {exc}")
+            notes.append(f"vyhledávání na webu selhalo: {exc}")
             return IssuerEvidence(query=query, provenance=provenance, notes=tuple(notes))
 
         usable = [hit for hit in hits if not is_blocked(hit.url)]
         if len(usable) < len(hits):
-            notes.append("some results were skipped: the Czech registers must not be scraped")
+            notes.append("část výsledků vynechána: české registry se nestahují")
         if not usable:
             if self._provider.name == "none":
                 notes.append("vyhledávání na webu není zapojené – popis činnosti zadejte ručně")
             else:
-                notes.append("no usable search result")
+                notes.append("vyhledávání nevrátilo žádný použitelný výsledek")
             return IssuerEvidence(query=query, provenance=provenance, notes=tuple(notes))
 
         sources: list[EvidenceSource] = []
@@ -492,7 +496,7 @@ class WebEvidenceGatherer:
 
         description_text = self._assemble(chunks)
         if not description_text:
-            notes.append("search returned results but no readable description")
+            notes.append("vyhledávání vrátilo výsledky, ale žádný čitelný popis")
         return IssuerEvidence(
             query=query,
             issuer_name=(name or "").strip() or (usable[0].title or None),
@@ -581,18 +585,18 @@ class WebEvidenceGatherer:
     def _read(self, url: str) -> tuple[str, str | None]:
         """Fetch one page and extract its text. Returns ``(text, error note)``."""
         if is_blocked(url):  # defence in depth; callers filter too
-            return "", f"refused to fetch a blocked host: {url}"
+            return "", f"blokovaná adresa se nestahuje: {url}"
         self._throttle()
         try:
             response = self._ensure_client().get(url)
         except httpx.HTTPError as exc:
             LOGGER.debug("could not fetch %s: %s", url, exc)
-            return "", f"could not read {url}"
+            return "", f"stránku se nepodařilo načíst: {url}"
         if response.status_code >= 400:
-            return "", f"{url} returned HTTP {response.status_code}"
+            return "", f"stránka vrátila HTTP {response.status_code}: {url}"
         content_type = response.headers.get("content-type", "")
         if "html" not in content_type and "text" not in content_type:
-            return "", f"{url} is not a readable document ({content_type or 'unknown type'})"
+            return "", f"není čitelný dokument ({content_type or 'neznámý typ'}): {url}"
 
         meta, _title, body = extract_text(response.text)
         # The meta description is a human-written summary of the whole page; prefer it and

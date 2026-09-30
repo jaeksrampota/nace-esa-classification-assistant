@@ -111,7 +111,7 @@ class NullLlmProvider:
 
     def complete(self, prompt: Prompt) -> LlmResponse:
         raise LlmNotConfiguredError(
-            "no LLM configured (set LLM_API_KEY in app/.env, or LLM_ENABLED=false)"
+            "žádný model není nastaven (LLM_API_KEY v app/.env, případně LLM_ENABLED=false)"
         )
 
 
@@ -229,7 +229,7 @@ class OpenAiProvider:
     def _ensure_client(self) -> httpx.Client:
         if self._client is None:
             if self._settings.llm_api_key is None:
-                raise LlmNotConfiguredError("LLM_API_KEY is not set; put it in app/.env")
+                raise LlmNotConfiguredError("LLM_API_KEY není nastaven; doplňte ho do app/.env")
             timeout = self._settings.llm_timeout_seconds
             self._client = httpx.Client(
                 base_url=self._settings.llm_base_url.rstrip("/"),

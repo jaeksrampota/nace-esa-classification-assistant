@@ -68,6 +68,7 @@ from core.auth import (
     verify_password,
 )
 from core.classify.budget import build_ledger, spending_as
+from core.classify.explain import decision_cs, reasons_cs
 from core.codebooks.errors import CodebookError
 from core.codebooks.loaders import load_and_check
 from core.db import DatabaseAuditSink, get_database
@@ -84,6 +85,9 @@ LOGGER = logging.getLogger(__name__)
 
 TEMPLATES = Jinja2Templates(directory=str(APP_ROOT / "ui" / "templates"))
 TEMPLATES.env.globals["admin_enabled"] = lambda: admin_enabled()  # noqa: PLW0108 - defined below
+# "Jak rozhodl" and the rules' reasons in Czech (core.classify.explain, 30 Sept 2026).
+TEMPLATES.env.globals["decision_cs"] = decision_cs
+TEMPLATES.env.filters["reasons_cs"] = reasons_cs
 
 #: After a failed codebook load, suggestion requests answer 503 at once for this long before
 #: the next attempt, so a missing Blob token does not become one download per request.
@@ -1065,6 +1069,8 @@ def suggest_xlsx(
                 "model": suggestion.nace.model if suggestion else None,
                 "NACE vybral": chosen_by.get("NACE", "návrh nástroje"),
                 "ESA vybral": chosen_by.get("ESA", "návrh nástroje"),
+                "NACE – jak rozhodnuto": _how_decided(suggestion, "NACE") if suggestion else None,
+                "ESA – jak rozhodnuto": _how_decided(suggestion, "ESA") if suggestion else None,
                 "podklady": CODE_SEPARATOR.join(row["evidence_urls"]) if row else None,
                 "poznámky": " | ".join(row["notes"]) if row else None,
             },
@@ -1079,6 +1085,19 @@ def suggest_xlsx(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": _attachment(stem)},
     )
+
+
+def _how_decided(suggestion: IssuerSuggestion, kind: str) -> str:
+    """The Run sheet's "jak rozhodnuto": who decided (as on the page), then the reason given."""
+    if kind == "NACE":
+        proposal = suggestion.nace_proposal
+        decided = decision_cs(proposal, suggestion.nace, suggestion.nace_candidates)
+    else:
+        proposal = suggestion.esa_proposal
+        decided = decision_cs(proposal, suggestion.esa, suggestion.esa_candidates)
+    if proposal is None:
+        return decided
+    return " ".join(part for part in (decided, proposal.justification, proposal.tie_note) if part)
 
 
 def _attachment(stem: str) -> str:

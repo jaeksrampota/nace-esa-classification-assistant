@@ -138,7 +138,7 @@ class TestClassifierDeadline:
             ranked_set(), issuer_name="A", description="a bank", deadline=clock.now + 10
         )
         assert result.abstained
-        assert "no time left for the model" in (result.abstain_reason or "")
+        assert "na model nezbyl čas" in (result.abstain_reason or "")
         assert "LOOKUP_DEADLINE_SECONDS" in (result.abstain_reason or "")
         assert stub.calls == [], "the call must not be started"
 
@@ -164,7 +164,7 @@ class TestClassifierDeadline:
             ranked_set(), esa, issuer_name="A", description="a bank", deadline=clock.now + 30
         )
         assert nace_result.top is not None
-        assert esa_result.abstained and "no time left" in (esa_result.abstain_reason or "")
+        assert esa_result.abstained and "nezbyl čas" in (esa_result.abstain_reason or "")
 
     def test_no_deadline_means_no_limit(self) -> None:
         classifier = LlmClassifier(StubLlmProvider(ANSWER), call_seconds=500.0, clock=FakeClock())
@@ -185,11 +185,11 @@ class TestClassifierDeadline:
         assert len(stub.calls) == 1
 
     def test_the_null_provider_keeps_its_own_reason(self) -> None:
-        """Deterministic mode must still say "no model configured", not "no time left"."""
+        """Deterministic mode must still say "model není zapojen", not "nezbyl čas"."""
         classifier = build_classifier(settings(llm_enabled=False))
         result = classifier.classify(
             ranked_set(), issuer_name="A", description="a bank", deadline=0.0
         )
         assert result.abstained
-        assert "no model configured" in (result.abstain_reason or "")
+        assert "model není zapojen" in (result.abstain_reason or "")
         assert isinstance(classifier.provider._inner, NullLlmProvider)  # type: ignore[attr-defined]

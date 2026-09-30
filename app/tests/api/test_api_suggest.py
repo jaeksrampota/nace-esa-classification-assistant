@@ -152,7 +152,7 @@ class TestAbstention:
             response = TestClient(api.app).post("/suggest", data={"description": UNRULED})
             assert "Kód nelze spolehlivě určit" in response.text
             assert "navrhovaný kód" not in response.text
-            assert "no model configured" in response.text
+            assert "model není zapojen" in response.text
             # Deterministic mode is a result, not a failure: the narrowed codebook has to be
             # on screen with its CTS IDs, or the tool has thrown its own work away.
             assert "zúžený číselník" in response.text
@@ -171,7 +171,7 @@ class TestAbstention:
             assert "podle pravidel" in response.text
             assert "Podle pravidel, bez modelu" in response.text
             assert "jistota" not in response.text  # only a model has a confidence
-            assert "no model configured" in response.text  # why the rules had to decide
+            assert "model není zapojen" in response.text  # why the rules had to decide
             # The rest of the narrowed codebook stays on screen under the proposal.
             assert "další kandidáti ze zúženého číselníku" in response.text
         finally:
@@ -261,12 +261,15 @@ class TestModelStates:
         assert "Financuje vlastní skupinu." in page  # the model's own justification
         assert "podle pravidel" not in page
         assert "Kód nelze spolehlivě určit" not in page
+        # Who decided is said in so many words, on every card.
+        assert page.count("Jak rozhodl:") == 2
+        assert "model stub-model – vybral z nabídky" in page
 
     def test_a_model_abstention_is_shown_with_its_reason(self) -> None:
         declined = json.dumps({"sufficient_evidence": False, "picks": []})
         page = self._page(StubLlmProvider(declined), description=UNRULED)
         assert "Kód nelze spolehlivě určit" in page
-        assert "the model judged the evidence insufficient" in page
+        assert "model usoudil, že podklady k rozhodnutí nestačí" in page
         assert "jistota" not in page
         assert "zúžený číselník" in page
 
@@ -274,7 +277,9 @@ class TestModelStates:
         declined = json.dumps({"sufficient_evidence": False, "picks": []})
         page = self._page(StubLlmProvider(declined), name="Nordkap Funding B.V.")
         assert "podle pravidel" in page
-        assert "the model judged the evidence insufficient" in page
+        assert "model usoudil, že podklady k rozhodnutí nestačí" in page
+        assert "pravidla, protože model kód nevybral (model usoudil" in page
+        assert "klíčové slovo: kaptivní finanční jednotka skupiny" in page  # reasons in Czech
 
     def test_a_budget_refusal_says_why_and_never_calls_the_model(self) -> None:
         """Vercel without LLM_DAILY_TOKEN_BUDGET=0: every call is refused before it is sent."""
@@ -286,7 +291,7 @@ class TestModelStates:
         )
         page = self._page(refusing, name="Nordkap Funding B.V.")
         assert stub.calls == []
-        assert "usage cannot be recorded" in page
+        assert "spotřebu nelze zaznamenat" in page
         assert "LLM_DAILY_TOKEN_BUDGET=0" in page
         assert "podle pravidel" in page  # the rules still propose
         assert "jistota" not in page
@@ -348,6 +353,9 @@ class TestDownload:
         pairs = {row[0].value: row[1].value for row in book["Run"].iter_rows(min_row=2)}
         assert pairs["ESA vybral"].startswith("uživatel")
         assert pairs["NACE vybral"] == "návrh nástroje"
+        # How each code was decided travels with the export, as on the page.
+        assert pairs["NACE – jak rozhodnuto"].startswith("model stub-model – vybral z nabídky")
+        assert "Financuje vlastní skupinu." in pairs["NACE – jak rozhodnuto"]
 
     def test_a_code_off_the_shortlist_is_refused(self, client: TestClient) -> None:
         response = client.get("/suggest.xlsx", params={"name": "Nordkap", "nace": "01"})
