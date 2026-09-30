@@ -122,7 +122,8 @@ guard on the model's cost). Since the evening of 24 Sept 2026 (code at `main` `1
 also has the Wikipedia description, the error reports and the central database: `/health`
 shows `database: postgres …` and `reports: db`. Since 29 Sept 2026 (`main` `055f717`) name-only
 lookups via GLEIF, the ECB lists, the FIRDS LEI fallback, code choice on the page and the
-six-column export are live too. The developer page `/admin` is on there too,
+six-column export are live too; production runs `main` `7a966ce` since 30 Sept 2026. The
+developer page `/admin` is on there too,
 behind its own `ADMIN_PASSWORD_HASH` (Sensitive, Production; not MO's password). The
 deterministic result is still what a
 codebook shows whenever the model is off or declines — typically ESA when the evidence does not
@@ -312,7 +313,8 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
   * **A daily budget fails closed on a read error** (29 Sept 2026): both ledgers'
     `totals_since` return `None` (unknown, never zero) when the read fails, and
     `BudgetedProvider` then refuses the call, so with `LLM_DAILY_TOKEN_BUDGET > 0` a database
-    outage makes the model abstain and the rules' proposal stands. Production's budget is 0.
+    outage makes the model abstain and the rules' proposal stands. Live since 30 Sept 2026;
+    production's budget is still 0.
 - **Golden set** (`tests/golden/`): a case counts only when `verified_by` is set; verified and
   provisional are scored separately and **no accuracy may be quoted from provisional cases**.
   All are provisional: 10 fictional traps plus 36 real issuers built from public sources (Q8).

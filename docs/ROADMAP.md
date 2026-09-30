@@ -22,7 +22,7 @@ shortlists — NACE and ESA, every candidate with its CTS ID — come out, and t
 off or declines, when a rule decided it (a GLEIF category or a keyword); a person confirms. It runs on
 Vercel (the production domain public since 24 Sept 2026, gated by the app's own login; the real codebooks in the
 private Blob store, `DE0005140008` end
-to end in about 12 s with the model; `main` at `055f717` is deployed since 29 Sept 2026 (the central database since the evening of 24 Sept), and the app's own login is on since that morning). It is not gold-plated, and
+to end in about 12 s with the model; `main` at `7a966ce` is deployed since 30 Sept 2026 (the central database since the evening of 24 Sept), and the app's own login is on since that morning). It is not gold-plated, and
 should not be: what follows is the short list that separates "works for Jakub" from "MO uses it", then what is
 optional.
 
@@ -120,7 +120,7 @@ optional.
    `nace-esa-db`, eu-central-1, `DATABASE_URL` on the project), verified live from a laptop. **Deployed the same
    evening** (`main` `1ec4e7b`): production's `/health` shows `database: postgres …` (the Neon pooler) and
    `reports: db`. Left: a signed-in production lookup to confirm the rows arrive. Then, if wanted, raise
-   `LLM_DAILY_TOKEN_BUDGET` above 0 — safe since 29 Sept 2026: an unreadable ledger now refuses to spend
+   `LLM_DAILY_TOKEN_BUDGET` above 0 — safe since 29 Sept 2026 (live since 30 Sept): an unreadable ledger now refuses to spend
    (`totals_since` returns `None`, never zero), so a database outage makes the model abstain.
 3e. **The developer page (24 Sept 2026).** `/admin`: the priced cost ledger and the complaints, behind its own
    password (`ADMIN_PASSWORD_HASH`, on top of the MO sign-in). ~~**Left: set `ADMIN_PASSWORD_HASH` on
@@ -583,6 +583,15 @@ choice on the page, the six-column export, the EU by ISIN prefix), same way; no 
 defaults on). Verified by curl: `/api/version` at `055f717`, `/health` 200 with `database: postgres …` and
 `reports: db` (deployment `dpl_3njLfgrmGtWXKYQQAY2t3pLFKuwB`). Not yet verified: a signed-in lookup reaching
 FIRDS (`/health` does not show it).
+**Redeployed a third time on 29 Sept 2026 (afternoon)**, `main` `a8da052` (the shortlist in the cache key,
+telecom/port/fund hints, the batch reader removed), same way (deployment `dpl_45yCGFUFS7mgKTVnXvRV3iat8fiJ`;
+recorded on 30 Sept).
+**Redeployed on 30 Sept 2026**, `main` `7a966ce` (the daily budget fails closed), through the Vercel API from
+this repository's `main`; no new env vars. Verified by curl: `/api/version` at `7a966ce`, `/health` 200 with
+`database: postgres …` and `reports: db`, `/` and `/admin` → 303 `/login`, `/api/suggest` without a session →
+401 (deployment `dpl_DRwucsJjEHGhatCcFmhvKEVgRYqr`). A `vercel deploy --prod` from a checkout was tried first
+and ended `BLOCKED`: on Hobby, Vercel refuses a CLI deploy whose commit author is not a member of the team
+(the repository owner's commits, here) - deploy those through the API with `gitSource` instead.
 **Depends on:** no epic (E0.2 was dropped, D2); D1 confirmed. Before real data: the four codebook files from the
 repository owner (perhaps in `tdzian39/rb_files`, where Jakub has a pending invite), uploaded with
 `vercel blob put` as in `app/README.md`.
