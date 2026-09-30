@@ -439,6 +439,7 @@ WIKIDATA_DB_INDUSTRIES: dict[str, Any] = {
 WIKIPEDIA_DB_CS: dict[str, Any] = {
     "type": "standard",
     "title": "Deutsche Bank",
+    "wikibase_item": "Q66048",
     "lang": "cs",
     "timestamp": "2023-09-21T15:35:11Z",
     "extract": (
@@ -450,6 +451,7 @@ WIKIPEDIA_DB_CS: dict[str, Any] = {
 WIKIPEDIA_DB_EN: dict[str, Any] = {
     "type": "standard",
     "title": "Deutsche Bank",
+    "wikibase_item": "Q66048",
     "lang": "en",
     "timestamp": "2026-09-13T22:12:37Z",
     "extract": (
@@ -465,76 +467,6 @@ WIKIPEDIA_DISAMBIGUATION: dict[str, Any] = {
 }
 
 
-def _name_hit(qid: str, label: str, description: str, matched: str | None = None) -> dict[str, Any]:
-    return {
-        "id": qid,
-        "title": qid,
-        "label": label,
-        "description": description,
-        "match": {"type": "alias" if matched else "label", "text": matched or label},
-    }
-
-
-#: ``wbsearchentities`` for "European Investment Bank" (live, 2026-09-24, trimmed): one item
-#: bears the name, the others only contain it - their ``match.text`` is longer.
-WIKIDATA_EIB_NAME_SEARCH: dict[str, Any] = {
-    "search": [
-        _name_hit(
-            "Q192247", "European Investment Bank", "body of the European Union providing funding"
-        ),
-        _name_hit("Q137669090", "European Investment Bank building", "building by Denys Lasdun"),
-        _name_hit("Q98088504", "European Investment Bank project", "funding project from the EIB"),
-    ],
-    "success": 1,
-}
-#: "Bundesrepublik Deutschland": three items answer to the alias - none may be taken.
-WIKIDATA_GERMANY_NAME_SEARCH: dict[str, Any] = {
-    "search": [
-        _name_hit(
-            "Q713750",
-            "West Germany",
-            "Federal Republic of Germany 1949-1990",
-            "Bundesrepublik Deutschland",
-        ),
-        _name_hit("Q183", "Germany", "country in Central Europe", "Bundesrepublik Deutschland"),
-        _name_hit(
-            "Q5551098",
-            "German Federal Republic",
-            "German state since 1990",
-            "Bundesrepublik Deutschland",
-        ),
-    ],
-    "success": 1,
-}
-#: "BMW Finance" (the suffix-stripped query): the group's item answers to the alias.
-WIKIDATA_BMW_NAME_SEARCH: dict[str, Any] = {
-    "search": [_name_hit("Q26678", "BMW", "German automotive manufacturer", "BMW Finance")],
-    "success": 1,
-}
-WIKIDATA_NO_NAME_HITS: dict[str, Any] = {"search": [], "success": 1}
-
-
-def lei_claims(lei: str | None) -> dict[str, Any]:
-    """A ``wbgetclaims`` answer for P1278: the item's LEI, or no claim at all."""
-    if lei is None:
-        return {"claims": {}}
-    return {
-        "claims": {
-            "P1278": [
-                {
-                    "mainsnak": {
-                        "snaktype": "value",
-                        "property": "P1278",
-                        "datavalue": {"value": lei, "type": "string"},
-                    },
-                    "type": "statement",
-                    "rank": "normal",
-                }
-            ]
-        }
-    }
-
-
 def _loose(text: str) -> str:
     return "".join(ch for ch in text.lower() if ch.isalnum())
 
@@ -548,19 +480,16 @@ def wikimedia_client(
     summaries: dict[str, dict[str, Any] | int] | None = None,
     wikidata_status: int = 200,
     calls: list[httpx.Request] | None = None,
-    name_search: dict[str, dict[str, Any]] | None = None,
-    item_lei: dict[str, str | None] | None = None,
-    with_article: set[str] | None = None,
+    wiki_search: dict[str, list[str]] | None = None,
+    wiki_search_langs: set[str] | None = None,
 ) -> httpx.Client:
-    """Client answering the Wikidata Action API and the Wikipedia summaries.
+    """Client answering the Wikidata Action API, Wikipedia's search and its summaries.
 
     Defaults are Deutsche Bank's live answers. ``summaries`` maps a language to a summary
     body or to an HTTP status; a language not in it answers 404. ``wikidata_status`` other
-    than 200 makes every Wikidata answer that status. ``name_search`` maps a search text to
-    its ``wbsearchentities`` answer (anything else finds nothing); ``item_lei`` maps an item
-    to the LEI it carries (``None`` = no claim; an item not listed carries none).
-    ``with_article`` names the items that have a Wikipedia article when several tie on a
-    name (``None`` = all of them).
+    than 200 makes every Wikidata answer that status. ``wiki_search`` maps a Wikipedia search
+    text to the titles it finds, in the editions of ``wiki_search_langs`` (``None`` = every
+    edition); anything else finds nothing.
     """
     summaries = {"cs": WIKIPEDIA_DB_CS, "en": WIKIPEDIA_DB_EN} if summaries is None else summaries
 
@@ -575,31 +504,8 @@ def wikimedia_client(
             action = params.get("action")
             if action == "query":
                 body = WIKIDATA_DB_SEARCH if search is None else search
-            elif action == "wbsearchentities":
-                # Wikidata's search is case- and punctuation-insensitive; so is the stand-in.
-                asked = _loose(params.get("search", ""))
-                body = next(
-                    (v for k, v in (name_search or {}).items() if _loose(k) == asked),
-                    WIKIDATA_NO_NAME_HITS,
-                )
-            elif action == "wbgetclaims" and params.get("property") == "P1278":
-                body = lei_claims((item_lei or {}).get(params.get("entity", "")))
             elif action == "wbgetclaims":
                 body = WIKIDATA_DB_CLAIMS if claims is None else claims
-            elif action == "wbgetentities" and params.get("props") == "sitelinks":
-                ids = params.get("ids", "").split("|")
-                article = {"enwiki": {"site": "enwiki", "title": "Article"}}
-                body = {
-                    "entities": {
-                        qid: {
-                            "id": qid,
-                            "sitelinks": article
-                            if with_article is None or qid in with_article
-                            else {},
-                        }
-                        for qid in ids
-                    }
-                }
             elif action == "wbgetentities" and params.get("props") == "labels":
                 body = WIKIDATA_DB_INDUSTRIES if industries is None else industries
             elif action == "wbgetentities":
@@ -613,6 +519,18 @@ def wikimedia_client(
             else:
                 return httpx.Response(400, text="unexpected action")
             return httpx.Response(200, json=payload(body))
+        if host.endswith(".wikipedia.org") and request.url.path == "/w/api.php":
+            # Wikipedia's search is case- and punctuation-insensitive; so is the stand-in.
+            lang = host.split(".", 1)[0]
+            asked = _loose(request.url.params.get("srsearch", ""))
+            titles = next(
+                (v for k, v in (wiki_search or {}).items() if _loose(k) == asked),
+                [],
+            )
+            if wiki_search_langs is not None and lang not in wiki_search_langs:
+                titles = []
+            hits = [{"ns": 0, "title": title} for title in titles]
+            return httpx.Response(200, json=payload({"query": {"search": hits}}))
         if host.endswith(".wikipedia.org"):
             answer = summaries.get(host.split(".", 1)[0])
             if answer is None:

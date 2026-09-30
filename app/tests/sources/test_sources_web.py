@@ -46,6 +46,9 @@ def settings(**overrides: object) -> Settings:
         "web_max_pages": 2,
         "web_max_results": 4,
         "web_search_url": None,
+        # Not about Wikimedia: off, or every name here would reach the real Wikipedia search
+        # (it is asked for every lookup since 30 Sept 2026, typed description or not).
+        "wikimedia_enabled": False,
     }
     base.update(overrides)
     return Settings(**base)

@@ -190,21 +190,25 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     Egress needed: `api.gleif.org`, `api.openfigi.com` (443).
 - **Web evidence** (`web.py`): the scraping ban is **enforced** by `BLOCKED_HOSTS`/`is_blocked()`,
   checked when filtering hits and again inside the fetcher. A typed description is authoritative
-  and skips the web. Every thin result (no provider, search down, 404, PDF, all blocked) returns
+  and stays first, but the web is still consulted (30 Sept 2026, Jakub: always look at the web):
+  Wikipedia's lead follows it as "Podle Wikipedie (cs): …". Every thin result (no provider, search down, 404, PDF, all blocked) returns
   evidence with no description, which must make the classifier **abstain rather than guess from
   the name**. The provider is a Protocol — which search API a bank may call is procurement.
-- **Wikipedia description** (`wikimedia.py`, E5.1, revived 24 Sept 2026): with no typed description
-  and a LEI from GLEIF, the gatherer asks Wikidata for the item whose P1278 is the LEI, then the
-  Wikipedia REST summary (`WIKIPEDIA_LANGUAGES`, `cs,en`), before any search provider.
-  * Matched on the **LEI first**; when no item carries it (or there is none), the **official
-    name** (`WIKIMEDIA_NAME_MATCH`, 24 Sept 2026): `wbsearchentities` label/alias hits count only
-    when the matched text *is* the name (`_fold`: case, diacritics, punctuation), the first
-    edition (en, then cs) with a hit decides, exactly one item may match, and an item carrying
-    another entity's LEI is refused - BMW Finance N.V. stays unmatched rather than becoming BMW.
-    Second try without the legal-form suffix; then a brand hit with a LEI is refused too.
-    Ties ("Bundesrepublik Deutschland", "European Union") are left alone, unless exactly one
-    tied item has a cs/en article ("Adidas AG" vs an empty duplicate item, 29 Sept 2026). Measured on the 36
-    golden ISINs: 14 described by LEI, 6 by name, 16 none (vehicles, funds, tied names).
+- **Wikipedia description** (`wikimedia.py`, E5.1, revived 24 Sept 2026): for every lookup (a
+  typed description too, since 30 Sept 2026) the gatherer asks Wikidata for the item whose P1278
+  is the LEI, then the Wikipedia REST summary (`WIKIPEDIA_LANGUAGES`, `cs,en`), before any search
+  provider.
+  * Matched on the **LEI first**; when no item carries it (or there is none), the **issuer's
+    name is searched on Wikipedia** (`WIKIMEDIA_NAME_MATCH`, `describe_by_name`, 30 Sept 2026):
+    legal form stripped, English edition first (a Czech search gave the *town* for "Kongsberg
+    Gruppen ASA"), among hits whose title shares a distinctive word with the name
+    (`names_agree`) the one sharing most (`shared_words`) is tried first, disambiguations and
+    family names skipped, and the item's Czech article preferred for the text. **No uniqueness
+    test and no LEI guard**: Jakub called the strict exact-label match (24-29 Sept) nonsense,
+    since it described almost no fund or vehicle. Accepted cost: a vehicle may get its group's
+    article (live: BMW Finance N.V. -> "BMW Bank"). Live 30 Sept: Kongsberg Gruppen, the EIB (cs)
+    found; iShares Core MSCI World, Nordkap Funding, Bundesrepublik Deutschland not - the model's
+    web search is for those.
     The item is sometimes the group or brand (BMW AG -> "BMW"), so the page always says to
     check; a name match says "podle shody názvu, ne identifikátoru".
   * The description is the article's lead plus Wikidata's one-liner and P452 industry labels

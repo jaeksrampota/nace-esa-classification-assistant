@@ -13,17 +13,24 @@ from core.sources.base import SourceResponseError, SourceUnavailableError
 from core.sources.web import SearchHit, StaticSearchProvider, WebEvidenceGatherer
 from core.sources.wikimedia import WikimediaSource, _clean
 from tests.sources.conftest import (
-    WIKIDATA_BMW_NAME_SEARCH,
     WIKIDATA_DB_LEI,
-    WIKIDATA_EIB_NAME_SEARCH,
     WIKIDATA_EMPTY_SEARCH,
-    WIKIDATA_GERMANY_NAME_SEARCH,
+    WIKIPEDIA_DB_CS,
     WIKIPEDIA_DB_EN,
     WIKIPEDIA_DISAMBIGUATION,
     wikimedia_client,
 )
 
 LEI = WIKIDATA_DB_LEI
+
+
+def wikipedia_searches(calls: list[httpx.Request]) -> list[httpx.Request]:
+    """The Wikipedia searches among ``calls`` (Wikidata's API has the same path)."""
+    return [
+        call
+        for call in calls
+        if call.url.host.endswith(".wikipedia.org") and call.url.path == "/w/api.php"
+    ]
 
 
 def settings(**overrides: object) -> Settings:
@@ -116,181 +123,119 @@ class TestItemByLei:
         assert len(calls) == 3  # search, entity, claims - no industry labels
 
 
-class TestItemByName:
-    """The name path: only an exact, unique, un-owned match - the entity, not the item."""
+class TestArticleByName:
+    """The name path: a Wikipedia search, and the first article whose title fits the name.
 
-    EIB = {"European Investment Bank": WIKIDATA_EIB_NAME_SEARCH}
+    Until 30 Sept 2026 only an exact, unique Wikidata label with no other entity's LEI counted;
+    that check is gone, so these tests pin what replaced it - including the namesake it lets in.
+    """
 
-    def test_the_one_item_bearing_the_name_is_taken(self) -> None:
-        item = source(
-            wikimedia_client(search=WIKIDATA_EMPTY_SEARCH, name_search=self.EIB)
+    EIB = {"European Investment Bank": ["European Investment Bank", "EIB Group"]}
+
+    def test_the_article_the_search_finds_is_taken_with_its_item(self) -> None:
+        wiki = source(
+            wikimedia_client(search=WIKIDATA_EMPTY_SEARCH, wiki_search=self.EIB)
         ).describe("5493006YXS1U5GIHE750", name="European Investment Bank")
-        assert item is not None
-        assert item.item.qid == "Q192247"
-        assert item.item.matched_by == "name"
+        assert wiki is not None and wiki.summary is not None
+        assert wiki.item.matched_by == "name"
+        assert wiki.item.qid == "Q66048"  # the canned article's wikibase_item
+        assert wiki.summary.lang == "cs"
 
     def test_the_lei_is_tried_first_and_the_name_only_after_a_miss(self) -> None:
         calls: list[httpx.Request] = []
-        item = source(wikimedia_client(calls=calls, name_search=self.EIB)).describe(
+        wiki = source(wikimedia_client(calls=calls, wiki_search=self.EIB)).describe(
             LEI, name="European Investment Bank"
         )
-        assert item is not None
-        assert item.item.matched_by == "lei"
-        assert all(c.url.params.get("action") != "wbsearchentities" for c in calls)
+        assert wiki is not None and wiki.item.matched_by == "lei"
+        assert not wikipedia_searches(calls)
 
     def test_a_name_alone_is_enough(self) -> None:
-        item = source(wikimedia_client(name_search=self.EIB)).describe(
+        wiki = source(wikimedia_client(wiki_search=self.EIB)).describe(
             None, name="European Investment Bank"
         )
-        assert item is not None
-        assert item.item.qid == "Q192247"
+        assert wiki is not None and wiki.item.matched_by == "name"
 
-    def test_case_diacritics_and_punctuation_do_not_matter(self) -> None:
-        item = source(wikimedia_client(name_search=self.EIB)).find_by_name(
-            "EUROPEAN  INVESTMENT-BANK"
+    def test_the_search_leaves_the_legal_form_out(self) -> None:
+        calls: list[httpx.Request] = []
+        source(wikimedia_client(calls=calls)).describe(None, name="Kongsberg Gruppen ASA")
+        searched = [call.url.params.get("srsearch") for call in wikipedia_searches(calls)]
+        assert searched == ["Kongsberg Gruppen", "Kongsberg Gruppen"]  # cs, then en
+
+    def test_a_title_sharing_no_word_with_the_name_is_passed_over(self) -> None:
+        # "Nordkapp" is a cape in Norway, not the financing vehicle.
+        calls: list[httpx.Request] = []
+        client = wikimedia_client(
+            calls=calls, wiki_search={"Nordkap Funding": ["Nordkapp", "Nordkap Funding"]}
         )
-        assert item is not None
+        assert source(client).describe_by_name("Nordkap Funding B.V.") is not None
+        read = [call.url.path for call in calls if "/page/summary/" in call.url.path]
+        assert read[0] == "/api/rest_v1/page/summary/Nordkap_Funding"
+        assert not any("Nordkapp" in path for path in read)
 
-    def test_hits_that_merely_contain_the_name_do_not_count(self) -> None:
-        # "European Investment Bank building" and "... project" are in the answer, not taken.
-        item = source(wikimedia_client(name_search=self.EIB)).find_by_name(
+    def test_the_title_sharing_most_words_is_tried_first(self) -> None:
+        # Live, 30 Sept 2026: the Czech search put the town Kongsberg before the company.
+        calls: list[httpx.Request] = []
+        client = wikimedia_client(
+            calls=calls, wiki_search={"Kongsberg Gruppen": ["Kongsberg", "Kongsberg Gruppen"]}
+        )
+        assert source(client).describe_by_name("Kongsberg Gruppen ASA") is not None
+        read = [call.url.path for call in calls if "/page/summary/" in call.url.path]
+        assert read[0] == "/api/rest_v1/page/summary/Kongsberg_Gruppen"
+
+    def test_english_is_searched_first_and_the_czech_article_preferred(self) -> None:
+        calls: list[httpx.Request] = []
+        wiki = source(wikimedia_client(calls=calls, wiki_search=self.EIB)).describe_by_name(
             "European Investment Bank"
         )
-        assert item is not None
-        assert item.qid == "Q192247"
+        assert wikipedia_searches(calls)[0].url.host == "en.wikipedia.org"
+        # Found in English; the item's Czech article is the text, as on the LEI path.
+        assert wiki is not None and wiki.summary is not None and wiki.summary.lang == "cs"
 
-    def test_several_items_bearing_the_name_means_none(self) -> None:
+    def test_a_group_article_is_taken_for_its_vehicle(self) -> None:
+        """The accepted risk: BMW Finance N.V. may get BMW's article; the gatherer flags every
+        name match for the reviewer and the model reads it next to the register facts."""
+        wiki = source(wikimedia_client(wiki_search={"BMW Finance": ["BMW"]})).describe_by_name(
+            "BMW Finance N.V."
+        )
+        assert wiki is not None and wiki.item.matched_by == "name"
+
+    def test_czech_is_searched_when_english_finds_nothing(self) -> None:
+        client = wikimedia_client(wiki_search=self.EIB, wiki_search_langs={"cs"})
+        wiki = source(client).describe_by_name("European Investment Bank")
+        assert wiki is not None and wiki.summary is not None
+        assert wiki.summary.lang == "cs"
+
+    def test_a_disambiguation_page_is_passed_over(self) -> None:
         client = wikimedia_client(
-            name_search={"Bundesrepublik Deutschland": WIKIDATA_GERMANY_NAME_SEARCH}
+            wiki_search={"Mercury": ["Mercury"]},
+            summaries={"cs": WIKIPEDIA_DISAMBIGUATION, "en": WIKIPEDIA_DISAMBIGUATION},
         )
-        assert source(client).find_by_name("Bundesrepublik Deutschland") is None
+        assert source(client).describe_by_name("Mercury") is None
 
-    ADIDAS = {
-        "Adidas AG": {
-            "search": [
-                {
-                    "id": "Q3895",
-                    "label": "Adidas AG",
-                    "description": "German multinational corporation",
-                    "match": {"type": "label", "text": "Adidas AG"},
-                },
-                {"id": "Q132108367", "label": "Adidas Ag", "match": {"text": "Adidas Ag"}},
-            ],
-            "success": 1,
-        }
-    }
+    def test_a_family_name_article_is_passed_over(self) -> None:
+        client = wikimedia_client(wiki_search={"Generali": ["Generali (příjmení)"]})
+        assert source(client).describe_by_name("Generali") is None
 
-    def test_an_empty_duplicate_does_not_block_the_item_with_the_article(self) -> None:
-        # Live, 2026-09-29: "Adidas AG" is the company and an empty item with no article.
-        client = wikimedia_client(name_search=self.ADIDAS, with_article={"Q3895"})
-        item = source(client).find_by_name("Adidas AG")
-        assert item is not None and item.qid == "Q3895"
-
-    def test_a_tie_where_no_item_has_an_article_means_none(self) -> None:
-        calls: list[httpx.Request] = []
-        client = wikimedia_client(name_search=self.ADIDAS, with_article=set(), calls=calls)
-        assert source(client).find_by_name("Adidas AG") is None
-        # Refused outright, not retried with the looser suffix-stripped name.
-        assert "Adidas" not in [c.url.params.get("search") for c in calls]
-
-    def test_a_tie_where_several_have_an_article_means_none(self) -> None:
-        client = wikimedia_client(name_search=self.ADIDAS)
-        assert source(client).find_by_name("Adidas AG") is None
-
-    def test_the_legal_form_is_stripped_for_a_second_try(self) -> None:
-        calls: list[httpx.Request] = []
-        source(wikimedia_client(calls=calls, name_search=self.EIB)).find_by_name(
-            "European Investment Bank AG"
-        )
-        searched = [
-            c.url.params.get("search")
-            for c in calls
-            if c.url.params.get("action") == "wbsearchentities"
-        ]
-        assert searched[:2] == ["European Investment Bank AG"] * 2  # en, cs
-        assert "European Investment Bank" in searched
-
-    def test_a_brand_match_carrying_a_lei_is_not_the_vehicle(self) -> None:
-        # "BMW Finance N.V." -> stripped "BMW Finance" -> the group's item, which has BMW AG's
-        # LEI. The vehicle has no LEI here: the item is somebody, not evidence it is this one.
-        client = wikimedia_client(
-            name_search={"BMW Finance": WIKIDATA_BMW_NAME_SEARCH},
-            item_lei={"Q26678": "5299000FUKEMR5ZJ0K48"},
-        )
-        assert source(client).find_by_name("BMW Finance N.V.") is None
-
-    def test_an_item_with_another_entitys_lei_is_rejected_even_on_an_exact_match(self) -> None:
-        client = wikimedia_client(
-            name_search={"European Investment Bank": WIKIDATA_EIB_NAME_SEARCH},
-            item_lei={"Q192247": "OTHER00000000000000X"},
-        )
-        assert source(client).find_by_name("European Investment Bank", lei=LEI) is None
-
-    def test_an_exact_match_with_a_lei_is_accepted_when_ours_is_unknown(self) -> None:
-        # GLEIF had no ISIN mapping, so we have no LEI; the full name matches one item that
-        # states a LEI. The name is the whole legal name, so it is taken.
-        client = wikimedia_client(
-            name_search={"European Investment Bank": WIKIDATA_EIB_NAME_SEARCH},
-            item_lei={"Q192247": "5493006YXS1U5GIHE750"},
-        )
-        assert source(client).find_by_name("European Investment Bank") is not None
-
-    def test_the_first_edition_with_a_match_decides(self) -> None:
-        # Live quirk: in the Czech edition the EIB *building* is labelled "European Investment
-        # Bank" too. English answered first with one item, so Czech is not asked at all.
-        calls: list[httpx.Request] = []
-        item = source(wikimedia_client(calls=calls, name_search=self.EIB)).find_by_name(
-            "European Investment Bank"
-        )
-        assert item is not None
-        languages = [
-            c.url.params.get("language")
-            for c in calls
-            if c.url.params.get("action") == "wbsearchentities"
-        ]
-        assert languages == ["en"]
-
-    def test_a_family_name_never_counts(self) -> None:
-        hits = {
-            "search": [
-                WIKIDATA_EIB_NAME_SEARCH["search"][0],
-                {
-                    **WIKIDATA_EIB_NAME_SEARCH["search"][0],
-                    "id": "Q37507309",
-                    "description": "family name",
-                },
-            ],
-            "success": 1,
-        }
-        item = source(
-            wikimedia_client(name_search={"European Investment Bank": hits})
-        ).find_by_name("European Investment Bank")
-        assert item is not None
-        assert item.qid == "Q192247"
-
-    def test_a_disambiguation_hit_never_counts(self) -> None:
-        hit = {
-            **WIKIDATA_EIB_NAME_SEARCH["search"][0],
-            "description": "Wikimedia disambiguation page",
-        }
-        client = wikimedia_client(name_search={"Mercury": {"search": [hit], "success": 1}})
-        assert source(client).find_by_name("Mercury") is None
+    def test_an_article_without_a_wikidata_item_is_passed_over(self) -> None:
+        bare = {key: value for key, value in WIKIPEDIA_DB_CS.items() if key != "wikibase_item"}
+        client = wikimedia_client(wiki_search=self.EIB, summaries={"cs": bare, "en": bare})
+        assert source(client).describe_by_name("European Investment Bank") is None
 
     def test_too_short_a_name_is_never_searched(self) -> None:
         calls: list[httpx.Request] = []
-        assert source(wikimedia_client(calls=calls)).find_by_name("AB") is None
+        assert source(wikimedia_client(calls=calls)).describe_by_name("AB") is None
         assert calls == []
 
     def test_the_switch_turns_the_name_path_off(self) -> None:
         calls: list[httpx.Request] = []
-        client = wikimedia_client(calls=calls, search=WIKIDATA_EMPTY_SEARCH, name_search=self.EIB)
+        client = wikimedia_client(calls=calls, search=WIKIDATA_EMPTY_SEARCH, wiki_search=self.EIB)
         assert (
             source(client, wikimedia_name_match=False).describe(
                 LEI, name="European Investment Bank"
             )
             is None
         )
-        assert all(c.url.params.get("action") != "wbsearchentities" for c in calls)
+        assert not wikipedia_searches(calls)
 
 
 class TestSummary:
@@ -458,13 +403,26 @@ class TestGatherer:
         )
         assert gatherer().gather(lei=LEI).issuer_name == "Deutsche Bank"
 
-    def test_a_typed_description_still_wins_and_nothing_is_asked(self) -> None:
+    def test_a_typed_description_stays_first_and_wikipedia_follows_it(self) -> None:
+        """The tool looks at the web every time (30 Sept 2026); what MO typed still leads."""
         calls: list[httpx.Request] = []
         evidence = gatherer(wikimedia_client(calls=calls)).gather(
             name="Deutsche Bank AG", lei=LEI, description="Univerzální banka."
         )
-        assert evidence.description == "Univerzální banka."
-        assert calls == []
+        assert evidence.description.startswith(
+            "Univerzální banka.\n\nPodle Wikipedie (cs): Deutsche Bank AG je největší"
+        )
+        assert calls  # Wikimedia was asked
+        assert evidence.provenance is not None and evidence.provenance.detail == "user-supplied"
+        assert evidence.notes[0] == "popis zadal uživatel, doplněn o Wikipedii"
+        assert [source.url for source in evidence.sources][-1].startswith("https://cs.wikipedia")
+
+    def test_a_typed_description_stands_alone_when_wikipedia_has_nothing(self) -> None:
+        evidence = gatherer(wikimedia_client(search=WIKIDATA_EMPTY_SEARCH)).gather(
+            name="Nordkap Funding B.V.", lei=LEI, description="Kaptivní financování skupiny."
+        )
+        assert evidence.description == "Kaptivní financování skupiny."
+        assert evidence.notes[0] == "popis zadal uživatel"
 
     def test_no_item_falls_through_to_the_search_provider(self) -> None:
         provider = RecordingProvider()
@@ -473,14 +431,14 @@ class TestGatherer:
         )
         assert provider.queries == ["BMW Finance N.V."]
         assert not evidence.has_description
-        assert "Wikidata nemá položku s tímto LEI ani jedinou položku s tímto názvem" in (
+        assert "Wikidata nemá položku s tímto LEI a Wikipedie nenašla článek podle názvu" in (
             evidence.notes
         )
 
     def test_a_name_match_is_flagged_as_such(self) -> None:
         client = wikimedia_client(
             search=WIKIDATA_EMPTY_SEARCH,
-            name_search={"European Investment Bank": WIKIDATA_EIB_NAME_SEARCH},
+            wiki_search={"European Investment Bank": ["European Investment Bank"]},
         )
         evidence = gatherer(client).gather(name="European Investment Bank", lei=LEI)
         assert evidence.has_description
@@ -490,7 +448,7 @@ class TestGatherer:
     def test_the_name_alone_can_bring_a_description(self) -> None:
         provider = RecordingProvider()
         client = wikimedia_client(
-            name_search={"European Investment Bank": WIKIDATA_EIB_NAME_SEARCH}
+            wiki_search={"European Investment Bank": ["European Investment Bank"]}
         )
         evidence = gatherer(client, provider).gather(name="European Investment Bank")
         assert evidence.has_description
@@ -522,8 +480,8 @@ class TestGatherer:
     def test_without_a_lei_only_the_name_is_asked(self) -> None:
         calls: list[httpx.Request] = []
         evidence = gatherer(wikimedia_client(calls=calls)).gather(name="Deutsche Bank AG")
-        assert {c.url.params.get("action") for c in calls} == {"wbsearchentities"}
-        assert "Wikidata nemá jedinou položku s tímto názvem" in evidence.notes
+        assert calls and calls == wikipedia_searches(calls)  # no LEI: only the name search
+        assert "Wikipedie nenašla článek podle názvu emitenta" in evidence.notes
 
     def test_the_description_is_capped_like_any_web_description(self) -> None:
         evidence = gatherer(web_max_description_chars=200).gather(lei=LEI)

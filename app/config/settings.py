@@ -240,14 +240,15 @@ class Settings(BaseSettings):
     # {lang}.wikipedia.org. Wikimedia refuses a User-Agent without contact (WEB_USER_AGENT).
     wikimedia_enabled: bool = Field(
         default=True,
-        description="Describe an issuer with a LEI from Wikidata and Wikipedia when no "
-        "description was typed. Also off when WEB_ENABLED is false.",
+        description="Describe every issuer from Wikidata and Wikipedia, by LEI or by name; a "
+        "typed description stays first and Wikipedia's lead follows it. Also off when "
+        "WEB_ENABLED is false.",
     )
     wikimedia_name_match: bool = Field(
         default=True,
-        description="When no Wikidata item carries the LEI (or there is none), accept the one "
-        "item whose label or alias exactly equals the official name and that carries no other "
-        "entity's LEI. Off: the identifier only.",
+        description="When no Wikidata item carries the LEI (or there is none), search Wikipedia "
+        "for the issuer's name and take the first article whose title shares a word with it "
+        "(no uniqueness test since 30 Sept 2026). Off: the identifier only.",
     )
     wikipedia_languages: str = Field(
         default="cs,en",

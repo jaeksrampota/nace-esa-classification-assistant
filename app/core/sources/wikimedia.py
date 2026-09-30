@@ -9,14 +9,13 @@ the well-known issuers that make up much of the work, Wikipedia already has it, 
         -> Wikipedia REST summary of the article (cs first, then en)
 
 The match is on the **identifier** first: a LEI finds exactly one item or none. Only when no
-item carries the LEI (or there is no LEI) is the **official name** tried, and then strictly:
-``wbsearchentities`` matches labels and aliases, and a hit counts only when the matched text
-*is* the name (case, diacritics and punctuation aside), exactly one item matches, and the item
-does not carry some other entity's LEI - which is what keeps "BMW Finance N.V." from being
-described as BMW, and "Amundi Funds" as the asset manager. A name that matches several items
-("Bundesrepublik Deutschland": Germany, West Germany, ...) is left alone, unless only one of
-them has a Wikipedia article (an empty duplicate item beside the real one). A description of the
-wrong issuer is worse than none, so every name match is flagged for the reviewer.
+item carries the LEI (or there is no LEI) is the **issuer's name** searched on Wikipedia
+itself (cs, then en, legal form stripped), and the first hit whose title shares a distinctive
+word with the name is taken, with its Wikidata item. Until 30 Sept 2026 the name path was
+strict - an exact Wikidata label, one item only, no other entity's LEI - and it found nothing
+for most funds and vehicles; Jakub called that check nonsense, so a namesake is now possible
+(a financing vehicle may get its group's article: BMW Finance N.V. -> BMW). Every name match
+is flagged for the reviewer, and the model reads it next to the register facts.
 
 Endpoints, verified live on 2026-09-23 with the repository's User-Agent (Wikimedia refuses one
 without contact information - see ``WEB_USER_AGENT``):
@@ -24,9 +23,9 @@ without contact information - see ``WEB_USER_AGENT``):
 * ``GET https://www.wikidata.org/w/api.php?action=query&list=search
   &srsearch=haswbstatement:P1278=<LEI>`` - the items carrying the LEI (Deutsche Bank
   ``7LTWFZYICNSX8D621K86`` -> ``Q66048``; the EIB and BMW Finance N.V. -> none).
-* ``action=wbsearchentities&search=<name>&language=en`` - label and alias matches with the
-  matched text (``match.text``), 3 KB for 7 hits; ``wbgetclaims&property=P1278`` on the one
-  chosen item, to see whose LEI it carries.
+* ``GET https://{lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=<name>`` -
+  article titles for the name, best first; the REST summary of the chosen one names its
+  Wikidata item (``wikibase_item``).
 * ``action=wbgetentities&ids=<Q>&props=labels|descriptions|sitelinks/urls`` - 0.6 KB. Asking
   for ``claims`` as well would bring the whole item, 443 KB for Deutsche Bank, which is why the
   industries come from:
@@ -39,8 +38,9 @@ without contact information - see ``WEB_USER_AGENT``):
   ``timestamp``; 404 for a missing article.
 
 Fail-soft contract, as in :mod:`core.sources.base`: ``None`` means Wikidata has no item for the
-LEI or no unambiguous one for the name (or Wikipedia no article); :class:`~core.sources.base.SourceUnavailableError` means it could
-not be asked - including when the lookup deadline leaves no time for another request.
+LEI and Wikipedia no article for the name; :class:`~core.sources.base.SourceUnavailableError`
+means it could not be asked - including when the lookup deadline leaves no time for another
+request.
 """
 
 from __future__ import annotations
@@ -63,8 +63,8 @@ from core.sources.base import (
     SourceResponseError,
     SourceUnavailableError,
 )
-from core.sources.names import LEGAL_FORM_RE as _LEGAL_FORM_RE
 from core.sources.names import fold as _fold
+from core.sources.names import names_agree, shared_words, strip_legal_form
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +72,8 @@ WIKIDATA_API: Final[str] = "https://www.wikidata.org/w/api.php"
 #: The human-readable item page, the citable form of a Wikidata item.
 ITEM_PAGE: Final[str] = "https://www.wikidata.org/wiki/{qid}"
 SUMMARY_URL: Final[str] = "https://{lang}.wikipedia.org/api/rest_v1/page/summary/{title}"
+#: Wikipedia's own Action API, for the search by name.
+WIKIPEDIA_API: Final[str] = "https://{lang}.wikipedia.org/w/api.php"
 
 #: Wikidata properties read: the LEI, and the industry.
 P_LEI: Final[str] = "P1278"
@@ -79,13 +81,11 @@ P_INDUSTRY: Final[str] = "P452"
 
 #: At most this many industries are named; a conglomerate lists a dozen.
 MAX_INDUSTRIES: Final[int] = 5
-#: Search hits read per name query; more only adds namesakes.
-NAME_SEARCH_LIMIT: Final[int] = 7
-#: Editions whose labels and aliases are searched, in order.
-NAME_SEARCH_LANGUAGES: Final[tuple[str, ...]] = ("en", "cs")
+#: Search hits read per edition when searching by name; more only adds namesakes.
+NAME_SEARCH_LIMIT: Final[int] = 5
 
-#: Search hits with these words in the description are never issuers: a disambiguation page,
-#: a paper, or a name as such ("Generali" is also a family name).
+#: Articles with these words in the title or description are never issuers: a disambiguation
+#: page, a paper, or a name as such ("Generali" is also a family name).
 _NEVER_AN_ISSUER: Final[tuple[str, ...]] = (
     "disambiguation",
     "rozcestník",
@@ -183,7 +183,7 @@ class WikidataItem:
 
 @dataclass(frozen=True, slots=True)
 class WikipediaSummary:
-    """The lead of one Wikipedia article."""
+    """The lead of one Wikipedia article, and the Wikidata item the article belongs to."""
 
     lang: str
     title: str
@@ -191,6 +191,8 @@ class WikipediaSummary:
     url: str
     provenance: Provenance
     revised_at: datetime | None = None
+    qid: str | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,20 +358,20 @@ class WikimediaSource:
         name: str | None = None,
         deadline: float | None = None,
     ) -> WikiDescription | None:
-        """The item for ``lei``, else the one item ``name`` exactly matches, with its summary.
+        """The item for ``lei`` with its summary, else the article a search for ``name`` finds.
 
-        ``None`` when neither finds an item. The name is tried only after the LEI missed (or
-        with no LEI at all), and only when :meth:`find_by_name` accepts the match.
+        ``None`` when neither finds anything. The name is searched only after the LEI missed
+        (or with no LEI at all), see :meth:`describe_by_name`.
 
         Raises:
-            SourceUnavailableError, SourceResponseError: Wikidata could not be asked. A
-                Wikipedia failure after the item was found is a note, not an error - the item
-                alone is still a description.
+            SourceUnavailableError, SourceResponseError: Wikidata or Wikipedia could not be
+                asked. A Wikipedia failure after the item was found by LEI is a note, not an
+                error - the item alone is still a description.
         """
         item = self.find_by_lei(lei, deadline=deadline) if lei else None
-        if item is None and name and self._settings.wikimedia_name_match:
-            item = self.find_by_name(name, lei=lei, deadline=deadline)
         if item is None:
+            if name and self._settings.wikimedia_name_match:
+                return self.describe_by_name(name, deadline=deadline)
             return None
         notes: list[str] = []
         for link in item.sitelinks:
@@ -411,120 +413,76 @@ class WikimediaSource:
             return None
         return self._load_item(qids[0], deadline, other_items=len(qids) - 1)
 
-    def find_by_name(
-        self, name: str, *, lei: str | None = None, deadline: float | None = None
-    ) -> WikidataItem | None:
-        """The one item whose label or alias *is* ``name``; ``None`` unless the match is clean.
+    def describe_by_name(
+        self, name: str, *, deadline: float | None = None
+    ) -> WikiDescription | None:
+        """The article a Wikipedia search for ``name`` finds, with its Wikidata item.
 
-        The exact name is searched first; if nothing matches, the name without its legal-form
-        suffix. A hit counts when the text Wikidata matched equals the query after
-        :func:`_fold` (case, diacritics, punctuation). Then:
-
-        * several matching items -> the one with a Wikipedia article in the configured
-          editions, when exactly one has it (an empty duplicate item must not block the real
-          one: "Adidas AG"); otherwise ``None`` (a namesake would be a wrong description);
-        * the item carries a LEI (P1278) other than ``lei`` -> ``None`` (another legal entity:
-          the group, the brand, the manager);
-        * the item carries a LEI, ``lei`` is unknown and only the suffix-stripped query matched
-          -> ``None`` (a brand match to *some* entity is not evidence it is this one).
+        The name, without its legal form, is searched in English first - foreign issuers have
+        their article there far more often; a Czech search found the *town* for "Kongsberg
+        Gruppen ASA" (live, 30 Sept 2026) - then in the other configured editions. Among an
+        edition's hits whose title shares a distinctive word with the name
+        (:func:`names_agree`), the one sharing the most is tried first, search rank breaking
+        ties; a disambiguation page, a family name or a paper is passed over. No uniqueness
+        test and no LEI guard since 30 Sept 2026, so a namesake is possible and the gatherer
+        flags every name match for the reviewer. The item's Czech article is preferred for the
+        text when it has one, as on the LEI path. ``None`` when no edition has such an article.
         """
-        query = _SPACE_RE.sub(" ", name).strip()
+        query = _SPACE_RE.sub(" ", strip_legal_form(name) or name).strip()
         if len(_fold(query)) < 3:
             return None
-        stripped = _LEGAL_FORM_RE.sub("", query).strip()
-        queries = [(True, query)]
-        if stripped and _fold(stripped) != _fold(query):
-            queries.append((False, stripped))
-        for exact, text in queries:
-            hits = self._search_names(text, deadline)
-            if len(hits) > 1:
-                described = self._with_article(hits, deadline)
-                if len(described) != 1:
-                    LOGGER.info("Wikidata: %r matches %d items; none taken", text, len(hits))
-                    return None
-                hits = described
-            if not hits:
-                continue
-            qid = hits[0]
-            carried = self._lei_of(qid, deadline)
-            foreign = carried is not None and (
-                (lei is not None and carried != lei.strip().upper()) or (lei is None and not exact)
-            )
-            if foreign:
-                LOGGER.info(
-                    "Wikidata: %s matches %r but carries LEI %s; not taken", qid, text, carried
-                )
-                return None
-            return self._load_item(qid, deadline, matched_by="name")
+        for lang in sorted(self.languages, key=lambda edition: edition != "en"):
+            titles = [t for t in self._search_titles(lang, query, deadline) if names_agree(name, t)]
+            for title in sorted(titles, key=lambda t: -shared_words(name, t)):
+                summary = self.summary(lang, title, deadline=deadline)
+                if summary is None or summary.qid is None:
+                    continue
+                about = f"{title} {summary.description or ''}".lower()
+                if any(word in about for word in _NEVER_AN_ISSUER):
+                    continue
+                item = self._load_item(summary.qid, deadline, matched_by="name")
+                if item is not None:
+                    return WikiDescription(
+                        item=item, summary=self._preferred(item, summary, deadline)
+                    )
         return None
 
-    def _search_names(self, text: str, deadline: float | None) -> list[str]:
-        """Items whose matched label or alias equals ``text``, from the first edition with any.
+    def _preferred(
+        self, item: WikidataItem, found: WikipediaSummary, deadline: float | None
+    ) -> WikipediaSummary:
+        """The item's article in the first configured edition that has one (cs before en)."""
+        for link in item.sitelinks:
+            if link.lang == found.lang:
+                return found
+            try:
+                summary = self.summary(link.lang, link.title, deadline=deadline)
+            except SourceError as exc:
+                LOGGER.warning("Wikipedia (%s) summary failed for %s: %s", link.lang, item.qid, exc)
+                continue
+            if summary is not None:
+                return summary
+        return found
 
-        The editions are asked in order and the first one with a match decides: a later
-        edition may add an item whose label *there* happens to be the name (the EIB's
-        building carries "European Investment Bank" as its Czech label) and turn a clean
-        match into a tie.
-        """
-        wanted = _fold(text)
-        found: dict[str, None] = {}
-        for language in NAME_SEARCH_LANGUAGES:
-            if found:
-                break
-            body = self._wikidata(
-                {
-                    "action": "wbsearchentities",
-                    "search": text,
-                    "language": language,
-                    "uselang": language,
-                    "type": "item",
-                    "limit": str(NAME_SEARCH_LIMIT),
-                },
-                deadline,
-            )
-            hits = body.get("search")
-            for hit in hits if isinstance(hits, list) else []:
-                hit = _mapping(hit)
-                qid = _text(hit.get("id"))
-                matched = _text(_mapping(hit.get("match")).get("text")) or _text(hit.get("label"))
-                about = (_text(hit.get("description")) or "").lower()
-                if not qid or not _QID_RE.fullmatch(qid) or not matched:
-                    continue
-                if _fold(matched) != wanted or any(word in about for word in _NEVER_AN_ISSUER):
-                    continue
-                found[qid] = None
-        return list(found)
-
-    def _with_article(self, qids: list[str], deadline: float | None) -> list[str]:
-        """The items of ``qids`` that have an article in one of the configured editions."""
-        entities = _mapping(
-            self._wikidata(
-                {
-                    "action": "wbgetentities",
-                    "ids": "|".join(qids),
-                    "props": "sitelinks",
-                    "sitefilter": "|".join(f"{lang}wiki" for lang in self.languages),
-                },
-                deadline,
-            ).get("entities")
+    def _search_titles(self, lang: str, query: str, deadline: float | None) -> list[str]:
+        """Titles of the articles one edition's search finds for ``query``, best first."""
+        body = self._json(
+            WIKIPEDIA_API.format(lang=lang),
+            {
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "srlimit": str(NAME_SEARCH_LIMIT),
+                "srprop": "",
+                "format": "json",
+            },
+            deadline,
         )
-        return [qid for qid in qids if _mapping(_mapping(entities.get(qid)).get("sitelinks"))]
-
-    def _lei_of(self, qid: str, deadline: float | None) -> str | None:
-        """The LEI the item states (P1278), or ``None``."""
-        claims = _mapping(
-            self._wikidata(
-                {"action": "wbgetclaims", "entity": qid, "property": P_LEI}, deadline
-            ).get("claims")
-        ).get(P_LEI)
-        for claim in claims if isinstance(claims, Sequence) else ():
-            claim = _mapping(claim)
-            if claim.get("rank") == "deprecated":
-                continue
-            value = _mapping(_mapping(claim.get("mainsnak")).get("datavalue")).get("value")
-            if isinstance(value, str) and _LEI_RE.fullmatch(value.strip().upper()):
-                return value.strip().upper()
-        return None
+        hits = _mapping(_mapping(body).get("query")).get("search")
+        return [
+            title
+            for hit in (hits if isinstance(hits, list) else [])
+            if (title := _text(_mapping(hit).get("title")))
+        ]
 
     def _load_item(
         self,
@@ -586,12 +544,15 @@ class WikimediaSource:
         page = _text(_mapping(_mapping(body.get("content_urls")).get("desktop")).get("page"))
         retrieved_at = datetime.now(UTC)
         revised_at = _parse_datetime(body.get("timestamp"))
+        qid = _text(body.get("wikibase_item"))
         return WikipediaSummary(
             lang=lang,
             title=_text(body.get("title")) or title,
             extract=extract,
             url=page or f"https://{lang}.wikipedia.org/wiki/{quote(title.replace(' ', '_'))}",
             revised_at=revised_at,
+            qid=qid if qid and _QID_RE.fullmatch(qid) else None,
+            description=_text(body.get("description")),
             provenance=Provenance(
                 source="WEB",
                 retrieved_at=retrieved_at,

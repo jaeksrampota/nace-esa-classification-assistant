@@ -32,7 +32,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from typing import Any, Final, Protocol
@@ -409,11 +409,11 @@ class WebEvidenceGatherer:
     ) -> IssuerEvidence:
         """Assemble evidence about one foreign issuer.
 
-        A description the user typed is authoritative and is used as-is; the web is only
-        consulted to fill a gap - first Wikidata/Wikipedia by ``lei`` (free, matched on the
-        identifier), else by the official ``name`` when exactly one item bears it and it is
-        not some other entity's, then the search provider. ``deadline`` is a
-        :func:`time.monotonic` value no Wikimedia request may run past.
+        Wikidata/Wikipedia are always asked - by ``lei`` (matched on the identifier), else by
+        the issuer's ``name`` (a Wikipedia search) - also when the user typed a description:
+        that stays first and verbatim, and Wikipedia's lead follows it (30 Sept 2026: the
+        tool is to look at the web every time). The search provider fills a gap only.
+        ``deadline`` is a :func:`time.monotonic` value no Wikimedia request may run past.
         Nothing here raises on a thin result - an issuer the web
         cannot describe must reach the classifier as "no evidence", which makes it abstain,
         rather than as an exception that loses the row.
@@ -423,34 +423,25 @@ class WebEvidenceGatherer:
         query = (name or isin or "").strip()
         supplied = (description or "").strip()
 
-        if supplied:
-            return IssuerEvidence(
-                query=query or supplied[:60],
-                issuer_name=(name or "").strip() or None,
-                description=supplied,
-                provenance=Provenance(
-                    source="WEB", retrieved_at=retrieved_at, detail="user-supplied"
-                ),
-                notes=("popis zadal uživatel; web se neprohledával",),
-            )
-
-        if not query and not lei:
+        if not query and not lei and not supplied:
             return IssuerEvidence(
                 query="", provenance=provenance, notes=("není podle čeho hledat",)
             )
         if not self._settings.web_enabled:
-            return IssuerEvidence(
-                query=query,
-                provenance=provenance,
-                notes=("hledání na webu je vypnuté (WEB_ENABLED)",),
-            )
+            note = "hledání na webu je vypnuté (WEB_ENABLED)"
+            if supplied:
+                return self._supplied(supplied, None, query=query, name=name, notes=[note])
+            return IssuerEvidence(query=query, provenance=provenance, notes=(note,))
 
         notes: list[str] = []
         official = (name or "").strip() or None
+        wiki = None
         if (lei or official) and self._settings.wikimedia_enabled:
             wiki = self._from_wikimedia(lei, official, deadline, notes)
-            if wiki is not None:
-                return self._wiki_evidence(wiki, query=query or lei or "", name=name, notes=notes)
+        if supplied:
+            return self._supplied(supplied, wiki, query=query, name=name, notes=notes)
+        if wiki is not None:
+            return self._wiki_evidence(wiki, query=query or lei or "", name=name, notes=notes)
         if not query:
             return IssuerEvidence(query=lei or "", provenance=provenance, notes=tuple(notes))
 
@@ -526,17 +517,53 @@ class WebEvidenceGatherer:
         if wiki is None:
             by_name = bool(name) and self._settings.wikimedia_name_match
             if lei and by_name:
-                notes.append("Wikidata nemá položku s tímto LEI ani jedinou položku s tímto názvem")
+                notes.append(
+                    "Wikidata nemá položku s tímto LEI a Wikipedie nenašla článek podle názvu"
+                )
             elif lei:
                 notes.append("Wikidata nemá položku s tímto LEI")
             else:
-                notes.append("Wikidata nemá jedinou položku s tímto názvem")
+                notes.append("Wikipedie nenašla článek podle názvu emitenta")
             return None
         notes.extend(wiki.notes)
         if not wiki.paragraphs:
             notes.append(f"Wikidata {wiki.item.qid} emitenta nepopisuje")
             return None
         return wiki
+
+    def _supplied(
+        self,
+        supplied: str,
+        wiki: WikiDescription | None,
+        *,
+        query: str,
+        name: str | None,
+        notes: list[str],
+    ) -> IssuerEvidence:
+        """What the user typed, first and verbatim, then Wikipedia's lead when there is one."""
+        provenance = Provenance(
+            source="WEB", retrieved_at=datetime.now(UTC), detail="user-supplied"
+        )
+        if wiki is None:
+            return IssuerEvidence(
+                query=query or supplied[:60],
+                issuer_name=(name or "").strip() or None,
+                description=supplied,
+                provenance=provenance,
+                notes=("popis zadal uživatel", *notes),
+            )
+        found = self._wiki_evidence(wiki, query=query or supplied[:60], name=name, notes=notes)
+        origin = f"Wikipedie ({wiki.summary.lang})" if wiki.summary is not None else "Wikidat"
+        return replace(
+            found,
+            description=(
+                f"{supplied}\n\nPodle {origin}: {found.description}"
+                if found.description
+                else supplied
+            ),
+            provenance=provenance,
+            notes=("popis zadal uživatel, doplněn o Wikipedii", *found.notes),
+        )
 
     def _wiki_evidence(
         self, wiki: WikiDescription, *, query: str, name: str | None, notes: list[str]
