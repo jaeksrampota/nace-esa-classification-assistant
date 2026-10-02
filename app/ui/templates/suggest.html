@@ -430,7 +430,7 @@
               jistota {{ {'high':'vysoká','medium':'střední','low':'nízká'}[proposal.confidence] }}
             </span>
             {% else %}
-            <span class="conf mid">podle pravidel · {% if proposal.tied %}vyberte kód{% else %}ověřte{% endif %}</span>
+            <span class="conf mid">{% if proposal.from_res %}z RES (ARES){% else %}podle pravidel{% endif %} · {% if proposal.tied %}vyberte kód{% else %}ověřte{% endif %}</span>
             {% endif %}
           </div>
           <div class="label">{{ proposal.family or proposal.label }}</div>

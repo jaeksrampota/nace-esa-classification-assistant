@@ -1209,7 +1209,8 @@ def _warnings(settings: Settings) -> list[str]:
         # current intended state, and the narrowed codebook is a usable result on its own.
         warnings.append(
             "Deterministický režim: nástroj zúží číselník na kandidáty s jejich CTS ID a kód "
-            "navrhne jen tam, kde rozhodlo pravidlo (kategorie v GLEIF nebo klíčové slovo); "
+            "navrhne jen tam, kde rozhodlo pravidlo (kategorie v GLEIF, klíčové slovo nebo u "
+            "českého emitenta RES); "
             "ověření a výběr jsou na vás. (Model se zapne po nastavení LLM_API_KEY.)"
         )
     wikimedia = settings.web_enabled and settings.wikimedia_enabled
@@ -1237,6 +1238,7 @@ def _warnings(settings: Settings) -> list[str]:
                 ("ESMA FIRDS", settings.firds_enabled),
                 ("OpenFIGI", settings.openfigi_enabled),
                 ("seznamy ECB", settings.ecb_enabled and settings.database_url is not None),
+                ("u českých emitentů RES přes ARES", settings.ares_enabled),
             )
             if on
         ]

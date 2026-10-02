@@ -101,6 +101,11 @@ class Proposal:
         return "Podle pravidel, bez modelu – " + reasons_cs(self.top.reasons) + "."
 
     @property
+    def from_res(self) -> bool:
+        """Whether RES settled the code (a Czech issuer, 2 Oct 2026) rather than a rule."""
+        return self.basis == "rules" and from_res(self.top.reasons)
+
+    @property
     def choices(self) -> tuple[Suggestion | Candidate, ...]:
         """The tied codes, this one included, in codebook order; empty when nothing ties."""
         if not self.tied:

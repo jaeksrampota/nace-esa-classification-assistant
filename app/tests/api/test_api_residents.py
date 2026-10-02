@@ -78,6 +78,7 @@ class TestPage:
         assert f"rezident ČR · IČO {CEZ_ICO}" in page
         assert "číselník BA0036 · jen elementární kódy · rezident" in page
         assert "převzato z RES (ARES), stav k 2026-09-04" in page
+        assert "z RES (ARES) · ověřte" in page and "podle pravidel · ověřte" not in page
         assert "1100100" in page
 
     def test_the_resident_warning_is_gone(self, client: TestClient) -> None:
