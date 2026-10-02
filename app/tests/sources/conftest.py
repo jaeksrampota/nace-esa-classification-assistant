@@ -593,3 +593,85 @@ def wikimedia_client(
         return httpx.Response(404, text="unknown host")
 
     return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+# -- ARES (RES) payloads ----------------------------------------------------------------
+# Trimmed copies of live ``ares.gov.cz/.../ekonomicke-subjekty-res/{ico}`` answers captured on
+# 2026-10-02: the fields the adapter reads, without the address and the lists of secondary
+# activities.
+
+
+def res_payload(
+    ico: str,
+    name: str,
+    *,
+    legal_form: str | None = "121",
+    sector: str | None = None,
+    nace: str | None = None,
+    nace_2008: str | None = None,
+    updated: str | None = "2023-06-29",
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "ico": ico,
+        "obchodniJmeno": name,
+        "pravniForma": legal_form,
+        "datumAktualizace": updated,
+        "primarniZaznam": True,
+    }
+    if sector is not None:
+        record["statistickeUdaje"] = {"institucionalniSektor2010": sector}
+    if nace is not None:
+        record["czNacePrevazujici"] = nace
+    if nace_2008 is not None:
+        record["czNacePrevazujici2008"] = nace_2008
+    return {"icoId": ico, "zaznamy": [record]}
+
+
+RES_CEZ = res_payload(
+    "45274649",
+    "ČEZ, a. s.",
+    sector="11001",
+    nace="35110",
+    nace_2008="35110",
+    updated="2026-09-04",
+)
+RES_KB = res_payload(
+    "45317054", "Komerční banka, a.s.", sector="12203", nace="64190", nace_2008="64190"
+)
+RES_MF = res_payload(
+    "00006947",
+    "Ministerstvo financí",
+    legal_form="325",
+    sector="13110",
+    nace="84110",
+    nace_2008="84110",
+)
+
+#: The 404 body ARES returns for an IČO RES does not hold (live, 2026-09-21).
+RES_NOT_FOUND: dict[str, Any] = {
+    "kod": "NENALEZENO",
+    "popis": "Nebyl nalezen žádný subjekt, který by odpovídal zadaným hodnotám.",
+    "subKod": "VYSTUP_SUBJEKT_NENALEZEN",
+}
+
+
+def ares_client(
+    answers: dict[str, dict[str, Any] | int] | None = None,
+    *,
+    calls: list[str] | None = None,
+) -> httpx.Client:
+    """Client answering the RES endpoint: ``answers`` maps IČO -> body or HTTP status; else 404."""
+    answers = answers or {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if calls is not None:
+            calls.append(str(request.url))
+        ico = request.url.path.rsplit("/", 1)[-1]
+        answer = answers.get(ico)
+        if answer is None:
+            return httpx.Response(404, json=payload(RES_NOT_FOUND))
+        if isinstance(answer, int):
+            return httpx.Response(answer, text="boom")
+        return httpx.Response(200, json=payload(answer))
+
+    return make_client(handler, base_url="https://ares.gov.cz")
