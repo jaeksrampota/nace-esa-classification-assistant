@@ -168,7 +168,7 @@ def _esa_rule(
     else:
         name = SECTOR_NAMES_CS.get(sector)
         notes.append(
-            f"ESA: sektor {sector}" + (f" ({name})" if name else "") + " z RES nemá v BA0036 "
+            f"ESA: sektor {sector}" + (f" – {name} –" if name else "") + " z RES nemá v BA0036 "
             "rezidentský kód – kód vybírá klasifikátor z rezidentských kódů."
         )
         return {}
@@ -261,7 +261,7 @@ def _disagreement(res: ResRecord, identity: IssuerIdentity) -> str | None:
     name = SECTOR_NAMES_CS.get(res.sector)
     return (
         f"ESA: seznam ECB ({entry.as_of}) vede emitenta {expected[1]} [{entry.code}], RES ho "
-        f"řadí do sektoru {res.sector}" + (f" ({name})" if name else "") + " – kód je převzat "
+        f"řadí do sektoru {res.sector}" + (f" {name}" if name else "") + " – kód je převzat "
         "z RES, rozpor registrů ověřte."
     )
 
