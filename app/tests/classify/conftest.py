@@ -236,6 +236,20 @@ def build_codebooks(
     )
 
 
+#: Divisions the resident cases need on top of NACE_ROWS; 45 stays out (CZ-NACE 2025 has
+#: none, nor does the CTS list).
+RESIDENT_NACE_ROWS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("35", "Výroba a rozvod elektřiny, plynu, tepla", ("Výroba a rozvod elektřiny",)),
+    ("84", "Veřejná správa a obrana; povinné sociální zabezpečení", ("Veřejná správa",)),
+)
+
+
+def build_resident_codebooks(drop: str | None = None) -> CodebookSet:
+    """The synthetic books with the whole resident block (less ``drop``) and divisions 35, 84."""
+    resident = [row for row in RESIDENT_ESA_ROWS if row[0] != drop]
+    return build_codebooks((*ESA_ROWS[:-2], *resident), (*NACE_ROWS, *RESIDENT_NACE_ROWS))
+
+
 @pytest.fixture
 def codebooks() -> CodebookSet:
     return build_codebooks()
