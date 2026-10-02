@@ -56,6 +56,8 @@ KEPT_KEYS: Final[frozenset[str]] = frozenset(
         "registration",
         "lastUpdateDate",
         "reason",
+        "registeredAs",
+        "registeredAt",
         # OpenFIGI
         "error",
         "warning",
