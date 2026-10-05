@@ -7,11 +7,13 @@ lookup came back empty. This module resolves it properly:
     ISIN -> GLEIF (LEI record: legal name, country, legal form, category, parents)
          -> OpenFIGI (instrument: market name, security type, market sector)
     IČO  -> GLEIF (the Czech entity registered under it)
+    name -> GLEIF; when no entity has it, ARES's name search (one active Czech subject; 5 Oct)
     a Czech issuer -> RES through ARES (prevailing NACE, institutional sector; 2 Oct 2026)
 
 All are public, keyless and fail-soft. An issuer is **resident** when GLEIF's legal seat is
-CZ, or, with no LEI record, when the user typed an IČO - decided by the register's seat,
-never by the ISIN prefix (foreign issuers have CZ ISINs, Czech ones XS ISINs). What comes out is an :class:`IssuerIdentity`: the
+CZ, or, with no LEI record, when the user typed an IČO or the name found one in ARES -
+decided by the register's seat, never by the ISIN prefix (foreign issuers have CZ ISINs,
+Czech ones XS ISINs). What comes out is an :class:`IssuerIdentity`: the
 best legal name (which becomes the web search query and the name on the page), a Czech
 fact sheet that goes into the classifier's evidence next to the web description, and the
 citable record pages for the evidence list. Nothing here is a decision - the facts are laid
@@ -31,6 +33,7 @@ from typing import TYPE_CHECKING
 from config.settings import Settings
 from core.sources.ares import AresSource, ResRecord
 from core.sources.base import SourceError
+from core.sources.czech_names import CzechNameMatch, find_czech_subject
 from core.sources.gleif import GleifSource, LeiRecord
 from core.sources.openfigi import FigiInstrument, OpenFigiSource
 from core.sources.web import EvidenceSource
@@ -57,6 +60,8 @@ class IssuerIdentity:
         ecb_as_of: The lists' date when they were asked and none had the LEI.
         typed_ico: The IČO the user typed (normalised), if any.
         res_record: RES's record of a resident issuer, when RES had one.
+        name_ico: The IČO the typed name found in ARES: the one active Czech subject with
+            exactly that name, when GLEIF had no entity called so (5 Oct 2026).
     """
 
     isin: str | None = None
@@ -69,6 +74,7 @@ class IssuerIdentity:
     ecb_as_of: str | None = None
     typed_ico: str | None = None
     res_record: ResRecord | None = None
+    name_ico: str | None = None
 
     @property
     def found(self) -> bool:
@@ -91,23 +97,25 @@ class IssuerIdentity:
 
     @property
     def resident(self) -> bool:
-        """A Czech issuer: GLEIF's legal seat is CZ, or - with no LEI record - an IČO was typed.
+        """A Czech issuer: GLEIF's legal seat is CZ, or - with no LEI record - an IČO was typed
+        or the name found one in ARES.
 
         The register's seat decides, never the ISIN prefix: a foreign bank may issue under a CZ
         ISIN and ČEZ under an XS one. A typed IČO does not outvote a foreign seat (the ISIN wins).
         """
         if self.lei_record is not None:
             return self.lei_record.legal_address_country == "CZ"
-        return self.typed_ico is not None
+        return self.typed_ico is not None or self.name_ico is not None
 
     @property
     def ico(self) -> str | None:
-        """The resident issuer's IČO: RES's record, else GLEIF's ``registeredAs``, else typed."""
+        """The resident issuer's IČO: RES's record, else GLEIF's ``registeredAs``, else typed,
+        else the one the name found in ARES."""
         if self.res_record is not None:
             return self.res_record.ico
         if self.lei_record is not None:
             return self.lei_record.ico
-        return self.typed_ico
+        return self.typed_ico or self.name_ico
 
     @property
     def ecb_known(self) -> bool:
@@ -429,7 +437,14 @@ class IssuerIdentifier:
         )
 
     def _identify_name(self, name: str) -> IssuerIdentity:
-        """GLEIF by name: the one active entity called ``name``, flagged as a name match."""
+        """GLEIF by name: the one active entity called ``name``, flagged as a name match.
+
+        When GLEIF answers that no entity has the name, ARES's name search is asked for a
+        Czech subject (:func:`~core.sources.czech_names.find_czech_subject`); one it takes
+        goes on as if its IČO had been typed. A GLEIF tie or outage does not reach ARES: a
+        name GLEIF gives to several entities, or could not check, is not settled by a namesake
+        in the Czech registers.
+        """
         settings = self._settings
         if not (settings.gleif_enabled and settings.gleif_name_match):
             return NO_IDENTITY
@@ -441,7 +456,14 @@ class IssuerIdentifier:
         record, tied = answer if answer is not None else (None, 0)
         if record is None:
             if answer is not None:
+                czech_notes: list[str] = []
+                match = self._czech_name(name, sources, czech_notes) if tied == 0 else None
+                if match is not None and match.ico is not None:
+                    return self._found_by_name(match, sources)
                 notes.append(_name_miss(name, tied))
+                notes.extend(czech_notes)
+                if match is not None:
+                    notes.append(match.note())
             return IssuerIdentity(sources=tuple(sources), notes=tuple(notes))
         notes.append(
             f"emitent dohledán v GLEIF podle názvu, ne podle ISIN: {record.legal_name} "
@@ -460,6 +482,32 @@ class IssuerIdentifier:
                 ),
             ),
             notes=tuple(notes),
+        )
+
+    def _czech_name(self, name: str, sources: list[str], notes: list[str]) -> CzechNameMatch | None:
+        """ARES's name search for ``name``; ``None`` when it is off or could not be asked."""
+        settings = self._settings
+        if not (settings.ares_enabled and settings.ares_name_search):
+            return None
+        return self._ask(
+            "ARES",
+            True,
+            lambda: find_czech_subject(self._ares_source(), name),
+            sources,
+            notes,
+            miss="",
+        )
+
+    def _found_by_name(self, match: CzechNameMatch, sources: list[str]) -> IssuerIdentity:
+        """The subject ARES took for the name, looked up like a typed IČO (GLEIF for a LEI)."""
+        assert match.ico is not None
+        by_ico = self._identify_ico(match.ico)
+        merged = [*sources, *(label for label in by_ico.sources if label not in sources)]
+        return replace(
+            by_ico,
+            sources=tuple(merged),
+            notes=(match.note(), *by_ico.notes),
+            name_ico=match.ico,
         )
 
     @staticmethod

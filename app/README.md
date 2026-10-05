@@ -43,7 +43,8 @@ legal name becomes the web query and the facts go into the shortlist and the pro
 bank is a bank because the register says so. See "Tool 1: issuer identification by ISIN".
 
 **Czech issuers take their codes from RES (2 Oct 2026).** An issuer whose GLEIF seat is CZ,
-or whose IČO is typed into the name field, gets NACE and ESA from RES through the ARES REST
+or whose IČO is typed into the name field, or whose name ARES's name search finds (one active
+Czech subject, 5 Oct 2026), gets NACE and ESA from RES through the ARES REST
 API: the prevailing activity's division and the BA0036 resident code of the institutional
 sector, "převzato z RES (ARES), stav k …", with no model call for an axis RES settles. See
 "Czech (resident) issuers: codes from RES".
@@ -197,6 +198,7 @@ fine, because unknown variables are ignored. The `ARES_*` variables went too and
 | `OPENFIGI_MIN_INTERVAL_SECONDS` | `2.5` | Spacing between requests; keyless limit `25;w=60` read live |
 | `OPENFIGI_MAX_ATTEMPTS` | `3` | Attempts per request; 429 and 5xx are retried |
 | `ARES_ENABLED` | `true` | For a Czech issuer, ask RES through ARES for its prevailing NACE and institutional sector |
+| `ARES_NAME_SEARCH` | `true` | A typed name GLEIF has no entity for is searched in ARES; one active Czech subject with that name is taken |
 | `ARES_BASE_URL` | `https://ares.gov.cz` | Base URL of the ARES REST API |
 | `ARES_TIMEOUT_SECONDS` | `5` | HTTP timeout per request (RES answers in ~0.1 s) |
 | `ARES_MIN_INTERVAL_SECONDS` | `0.25` | Spacing between requests; the Ministry may block more than 500/min |
@@ -483,7 +485,11 @@ takes both codes from RES, the ČSÚ register, read keyless through the Ministry
 ARES REST API - so MO need not care whether an issuer is resident:
 
 ```
-resident?  GLEIF's legal seat CZ (never the ISIN prefix), or an IČO typed into the name field
+resident?  GLEIF's legal seat CZ (never the ISIN prefix), or an IČO typed into the name field,
+           or a typed name GLEIF has no entity for and ARES gives exactly one active subject
+name       POST ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat
+           (core/sources/czech_names.py): taken only when one ACTIVE subject has the same
+           normalised name over the complete hit set; else the namesakes are listed
 IČO        GLEIF registeredAs (CZ + 8 digits), else the typed one; an IČO alone is also
            asked in GLEIF (filter[entity.registeredAs]) for the LEI the ECB lists key on
 RES        GET ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-res/{ico}

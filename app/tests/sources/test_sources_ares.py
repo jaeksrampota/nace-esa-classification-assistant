@@ -6,22 +6,25 @@ the network.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime
 
 import httpx
 import pytest
 
 from config.settings import Settings
-from core.sources.ares import PATH_RES, AresSource
+from core.sources.ares import PATH_RES, PATH_SEARCH, AresSource
 from core.sources.base import SourceQueryError, SourceResponseError, SourceUnavailableError
 from tests.sources.conftest import (
     RES_CEZ,
     RES_KB,
     RES_MF,
+    RES_NOT_FOUND,
     ares_client,
     make_client,
     payload,
     res_payload,
+    search_hit,
 )
 
 
@@ -31,8 +34,9 @@ def settings(**overrides: object) -> Settings:
     return Settings(**base)  # type: ignore[arg-type]
 
 
-def source(answers: dict, **overrides: object) -> AresSource:
-    return AresSource(settings(**overrides), client=ares_client(answers), sleep=lambda _: None)
+def source(answers: dict, *, search: dict | None = None, **overrides: object) -> AresSource:
+    client = ares_client(answers, search=search)
+    return AresSource(settings(**overrides), client=client, sleep=lambda _: None)
 
 
 class TestRecord:
@@ -247,3 +251,95 @@ def test_close_leaves_an_injected_client_alone() -> None:
     client = ares_client({})
     AresSource(settings(), client=client).close()
     assert not client.is_closed
+
+
+class TestNameSearch:
+    """``POST .../ekonomicke-subjekty/vyhledat``: one page of subjects, or ARES's refusal."""
+
+    def test_the_request_is_the_search_body(self) -> None:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"pocetCelkem": 0, "ekonomickeSubjekty": []})
+
+        client = make_client(handler, base_url="https://ares.gov.cz")
+        AresSource(settings(), client=client).search_by_name("  Komerční   banka ", limit=500)
+        (request,) = seen
+        assert request.method == "POST" and request.url.path == PATH_SEARCH
+        assert json.loads(request.content) == {
+            "obchodniJmeno": "Komerční banka",
+            "pocet": 200,
+            "start": 0,
+        }
+
+    def test_hits_are_parsed(self) -> None:
+        kb = search_hit("45317054", "Komerční banka, a.s.")
+        found = source({}, search={"Komerční banka": [kb]}).search_by_name("Komerční banka")
+        assert found.total == 1 and not found.too_many
+        (hit,) = found.hits
+        assert (hit.ico, hit.name, hit.legal_form, hit.town, hit.active) == (
+            "45317054",
+            "Komerční banka, a.s.",
+            "121",
+            "Praha",
+            True,
+        )
+        assert hit.label() == "Komerční banka, a.s. (IČO 45317054, Praha)"
+
+    @pytest.mark.parametrize(
+        ("hit", "active"),
+        [
+            (search_hit("14893649", "Max banka a.s.", dissolved="2024-10-18"), False),
+            (search_hit("14893649", "X", states={"stavZdrojeRes": "ZANIKLY"}), False),
+            (search_hit("14893649", "X", states={"stavZdrojeVr": "AKTIVNI"}), True),
+            (search_hit("14893649", "X", states={}), True),
+        ],
+    )
+    def test_active_means_not_dissolved_and_some_register_active(
+        self, hit: dict, active: bool
+    ) -> None:
+        found = source({}, search={"X": [hit]}).search_by_name("X")
+        assert found.hits[0].active is active
+
+    def test_a_hit_without_an_8_digit_ico_has_none(self) -> None:
+        ares = source({}, search={"X": [search_hit(None, "X"), search_hit("123", "X")]})
+        assert [hit.ico for hit in ares.search_by_name("X").hits] == [None, None]
+
+    def test_nothing_found_is_an_empty_page(self) -> None:
+        found = source({}).search_by_name("EGAP")
+        assert found.total == 0 and found.hits == () and not found.too_many
+
+    def test_a_404_is_nothing_found_too(self) -> None:
+        client = make_client(
+            lambda request: httpx.Response(404, json=RES_NOT_FOUND), base_url="https://ares.gov.cz"
+        )
+        assert AresSource(settings(), client=client).search_by_name("EGAP").hits == ()
+
+    def test_too_many_hits_is_an_answer_with_the_count(self) -> None:
+        found = source({}, search={"Stavby": 2825}).search_by_name("Stavby")
+        assert found.too_many and found.total == 2825 and found.hits == ()
+
+    def test_another_400_is_an_error(self) -> None:
+        client = make_client(
+            lambda request: httpx.Response(400, json={"kod": "CHYBA_VSTUPU", "subKod": "JINA"}),
+            base_url="https://ares.gov.cz",
+        )
+        with pytest.raises(SourceResponseError):
+            AresSource(settings(), client=client).search_by_name("X")
+
+    def test_a_body_that_is_not_json_is_an_error_not_nothing(self) -> None:
+        client = make_client(
+            lambda request: httpx.Response(200, text="<html>údržba</html>"),
+            base_url="https://ares.gov.cz",
+        )
+        with pytest.raises(SourceResponseError):
+            AresSource(settings(), client=client).search_by_name("X")
+
+    def test_an_outage_is_unavailable(self) -> None:
+        with pytest.raises(SourceUnavailableError):
+            source({}, search={"X": 503}).search_by_name("X")
+
+    def test_an_empty_name_is_never_sent(self) -> None:
+        with pytest.raises(SourceQueryError):
+            source({}).search_by_name("   ")

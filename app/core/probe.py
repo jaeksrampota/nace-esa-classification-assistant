@@ -499,6 +499,7 @@ def configuration(settings: Settings) -> list[dict[str, object]]:
         plain("GLEIF_TIMEOUT_SECONDS", settings.gleif_timeout_seconds),
         plain("OPENFIGI_TIMEOUT_SECONDS", settings.openfigi_timeout_seconds),
         plain("ARES_ENABLED", settings.ares_enabled),
+        plain("ARES_NAME_SEARCH", settings.ares_name_search),
         plain("ARES_TIMEOUT_SECONDS", settings.ares_timeout_seconds),
         secret("WEB_SEARCH_URL", settings.web_search_url),
         plain("LLM_ENABLED", settings.llm_enabled),

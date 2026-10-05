@@ -6,6 +6,8 @@ The real GLEIF and ARES adapters run over mock transports (trimmed live payloads
 
 from __future__ import annotations
 
+import pytest
+
 from config.settings import Settings
 from core.sources.ares import AresSource
 from core.sources.gleif import GleifSource
@@ -19,9 +21,11 @@ from tests.sources.conftest import (
     RES_CEZ,
     RES_KB,
     RES_MF,
+    _gleif_item,
     ares_client,
     gleif_client,
     res_payload,
+    search_hit,
 )
 
 CEZ_ISIN = "CZ0005112300"
@@ -51,6 +55,10 @@ def identifier(
     res: dict | None = None,
     ares_calls: list[str] | None = None,
     firds: object = None,
+    search: dict | None = None,
+    searched: list | None = None,
+    gleif_names: dict | None = None,
+    gleif_status: int = 200,
     **overrides: object,
 ) -> IssuerIdentifier:
     resolved = settings(**overrides)
@@ -58,12 +66,15 @@ def identifier(
         by_isin={CEZ_ISIN: GLEIF_CEZ, KB_ISIN: GLEIF_KB, DB_ISIN: GLEIF_DEUTSCHE_BANK},
         by_ico={"45317054": [GLEIF_KB], "45274649": [GLEIF_CEZ], "00006947": [GLEIF_MF]},
         records={MF_LEI: GLEIF_MF},
+        by_name=gleif_names,
+        status=gleif_status,
     )
     answers = {"45274649": RES_CEZ, "45317054": RES_KB, "00006947": RES_MF} if res is None else res
+    ares = ares_client(answers, calls=ares_calls, search=search, searched=searched)
     return IssuerIdentifier(
         resolved,
         gleif=GleifSource(resolved, client=gleif),
-        ares=AresSource(resolved, client=ares_client(answers, calls=ares_calls)),
+        ares=AresSource(resolved, client=ares),
         firds=firds,  # type: ignore[arg-type]
     )
 
@@ -185,3 +196,101 @@ def test_a_government_bond_reaches_the_ministry_through_firds() -> None:
     assert identity.lei == MF_LEI and identity.resident
     assert identity.res_record is not None and identity.res_record.sector == "13110"
     assert identity.res_record.nace == "84110"
+
+
+KB_HIT = search_hit("45317054", "Komerční banka, a.s.")
+ING_HIT = search_hit("49279866", "ING Bank N.V.", legal_form="421")
+
+
+class TestTypedName:
+    """A name GLEIF has no entity for goes to ARES's name search (5 Oct 2026)."""
+
+    def test_the_one_czech_holder_is_looked_up_like_a_typed_ico(self) -> None:
+        identity = identifier(search={"Komerční banka": [KB_HIT]}).identify(
+            None, name="Komerční banka"
+        )
+        assert identity.resident and identity.name_ico == "45317054"
+        assert identity.typed_ico is None
+        assert identity.lei == "IYKCAVNFR8QGF00HV840", "GLEIF by IČO gives the LEI"
+        assert identity.res_record is not None and identity.res_record.sector == "12203"
+        assert identity.sources == ("GLEIF", "ARES", "RES")
+        assert identity.notes[0].startswith("emitent dohledán v ARES podle názvu, ne podle IČO")
+        assert not any("v GLEIF není žádný aktivní subjekt" in note for note in identity.notes)
+
+    def test_a_subject_without_a_lei_still_gets_its_res_codes(self) -> None:
+        """The Prague branch of ING Bank N.V. has no LEI of its own."""
+        ing = {
+            "49279866": res_payload(
+                "49279866", "ING Bank N.V.", legal_form="421", sector="12203", nace="64190"
+            )
+        }
+        identity = identifier(res=ing, search={"ING Bank N.V.": [ING_HIT]}).identify(
+            None, name="ING Bank N.V."
+        )
+        assert identity.resident and identity.lei is None and identity.ico == "49279866"
+        assert identity.res_record is not None and identity.res_record.legal_form == "421"
+        assert "GLEIF nevede k IČO 49279866 žádný záznam LEI" in identity.notes
+
+    def test_namesakes_are_listed_and_nothing_is_taken(self) -> None:
+        calls: list[str] = []
+        sro = search_hit("25119273", "HARMONIE PLUS, s.r.o.", legal_form="112")
+        bare = search_hit("48383201", "HARMONIE PLUS", legal_form="706", town="Rokycany")
+        identity = identifier(
+            ares_calls=calls,
+            search={"HARMONIE PLUS, s.r.o.": [sro], "HARMONIE PLUS": [sro, bare]},
+        ).identify(None, name="HARMONIE PLUS, s.r.o.")
+        assert not identity.resident and identity.ico is None and identity.res_record is None
+        assert identity.sources == ("GLEIF", "ARES")
+        gleif_note, ares_note = identity.notes
+        assert gleif_note.startswith("v GLEIF není žádný aktivní subjekt")
+        assert "nese v ARES 2 aktivní subjekty" in ares_note and "48383201" in ares_note
+        assert not any("/ekonomicke-subjekty-res/" in url for url in calls), "RES not asked"
+
+    def test_a_name_gleif_gives_several_entities_is_not_searched_in_ares(self) -> None:
+        searched: list = []
+        twins = [
+            _gleif_item(lei, "OMV", country=country, jurisdiction=country, category="GENERAL")
+            for lei, country in (("529900AAAAAAAAAAAA01", "AT"), ("529900AAAAAAAAAAAA02", "RO"))
+        ]
+        identity = identifier(gleif_names={"OMV": twins}, searched=searched).identify(
+            None, name="OMV"
+        )
+        assert searched == [] and identity.sources == ("GLEIF",)
+        assert "odpovídá v GLEIF 2 různým subjektům" in identity.notes[0]
+
+    def test_a_gleif_outage_does_not_hand_the_name_to_ares(self) -> None:
+        searched: list = []
+        identity = identifier(gleif_status=503, searched=searched).identify(
+            None, name="Komerční banka"
+        )
+        assert searched == [] and not identity.resident
+        assert any(note.startswith("GLEIF: zdroj se nepodařilo dotázat") for note in identity.notes)
+
+    def test_an_ares_outage_is_a_note_never_nothing_found(self) -> None:
+        identity = identifier(search={"Komerční banka": 503}).identify(None, name="Komerční banka")
+        assert not identity.resident and "ARES" not in identity.sources
+        assert any(note.startswith("ARES: zdroj se nepodařilo dotázat") for note in identity.notes)
+        assert not any("nezná subjekt" in note for note in identity.notes)
+
+    def test_nothing_in_ares_either_says_so(self) -> None:
+        identity = identifier(search={}).identify(None, name="Nordkap Funding B.V.")
+        assert identity.sources == ("GLEIF", "ARES")
+        assert identity.notes[-1] == (
+            "ani ARES (české subjekty) nezná subjekt s názvem „Nordkap Funding B.V.“"
+        )
+
+    @pytest.mark.parametrize("switch", ["ares_enabled", "ares_name_search"])
+    def test_the_switches_turn_it_off(self, switch: str) -> None:
+        searched: list = []
+        identity = identifier(
+            search={"Komerční banka": [KB_HIT]}, searched=searched, **{switch: False}
+        ).identify(None, name="Komerční banka")
+        assert searched == [] and not identity.resident
+        assert identity.sources == ("GLEIF",)
+
+    def test_an_isin_is_never_searched_by_name(self) -> None:
+        searched: list = []
+        identifier(search={"Komerční banka": [KB_HIT]}, searched=searched).identify(
+            CEZ_ISIN, name="Komerční banka"
+        )
+        assert searched == []

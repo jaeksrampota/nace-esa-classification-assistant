@@ -128,8 +128,8 @@ optional.
    **Deployed 30 Sept 2026** (PR #24, `main` `7fbf8cd`) and checked live: the web search answers
    (iShares, Kongsberg, Deutsche Bank), and it found Kongsberg's 50 % state ownership, so ESA
    came out "veřejné" with high confidence - Q7 answered from the web for the first time.
-3h. **Czech (resident) issuers take NACE and ESA from RES (2 Oct 2026, PR #26 - not merged or
-   deployed yet).** MO asked through Reporting that an ISIN or a Czech subject give the codes from
+3h. **Czech (resident) issuers take NACE and ESA from RES (2 Oct 2026, PR #26 - merged and
+   deployed 5 Oct 2026, `main` `392011a`).** MO asked through Reporting that an ISIN or a Czech subject give the codes from
    RES/OR, so they need not care who is resident; Jakub decided (§1). A resident is GLEIF's seat
    CZ, or an IČO typed into the name field. RES (through the ARES REST API) settles NACE from the
    prevailing CZ-NACE code and ESA from the institutional sector through the reviewable table
@@ -142,7 +142,8 @@ optional.
    banka and EGAP (RES: 13110 central government; the ECB lists: credit institutions, an
    insurer); the 20 foreign-bank branches have no LEI, so they tie bank / other deposit-taker
    (the MFI list's RIAD code is CZ + IČO - matching on it is a follow-up); ARES name search
-   (res-or-lookup's precision-first matcher, `docs/MATCHING.md` there) is a follow-up; the
+   (res-or-lookup's precision-first matcher, `docs/MATCHING.md` there) is done since 5 Oct 2026
+   (`core/sources/czech_names.py`; §1); the
    Ministry's path needs FIRDS answering from Vercel (item 4).
 3d. **The central database (24 Sept 2026, D4 answered).** `core/db.py`: with `DATABASE_URL` the ledger, the cache,
    the audit events and the error reports live in one Postgres. **Created and connected the same day** (Neon
@@ -188,6 +189,7 @@ Q15 (a listed parent's NACE), D4 (database, for the audit), Q10 (volume; a free 
 
 | Date | Decision | By |
 |---|---|---|
+| 2026-10-05 | **A Czech name GLEIF does not know is searched in ARES** (Jakub, after the RES PR went live: "Český subjekt bez LEI zatím nejde najít jen podle názvu - can we fix this?"). Asked only when GLEIF answered that no entity has the name (a GLEIF tie or outage does not reach ARES); a subject is taken only when exactly one active subject has the same normalised name over the complete hit set - the RES a OR tool's rule, ported (`core/sources/czech_names.py`); otherwise the namesakes are listed for MO to type the IČO. Left out: word dropout, former names, ČSÚ's open data (candidates-only there, or a file this tool does not load). `ARES_NAME_SEARCH` turns it off. | Jakub |
 | 2026-10-02 | **Czech (resident) issuers get their codes from RES through the ARES REST API, inside this tool** (MO's request through Reporting): it is not merged with `jaeksrampota/res-or-lookup`. This **reverses "nothing here reads ARES"** (22 Sept, PR #5) for resident issuers only; foreign issuers are unchanged. OR adds no codes (NACE and ESA live only in RES), so the VR endpoint is not called. Defaults: an axis RES settles skips the model (the web description is still fetched); no ARES name search yet; for residents RES wins over the model and over GLEIF categories. PR #26. | Jakub |
 | 2026-09-23 | **The model is on in production** — the owner's decision, superseding "the LLM stays off until an approved endpoint exists" (22 Sept): OpenAI `gpt-5.6-luna` with the owner's key (a Sensitive Vercel variable, Production only), `LLM_ENABLED=true`, `LLM_DAILY_TOKEN_BUDGET=0`. Rollback is `LLM_ENABLED=false` and a redeploy; another endpoint is env vars plus a redeploy (§0 item 3a). | tdzian39 |
 | 2026-09-24 | **Popis činnosti from Wikipedia is back on** — the 23 Sept decision below is reversed: with no typed description the tool describes an issuer from its Wikidata item (by LEI) and Wikipedia lead, so an ISIN alone yields a description for the issuers Wikidata knows. Branch `feat/e5-wikipedia-description` merged. | Timotej |
