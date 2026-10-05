@@ -416,7 +416,12 @@ def _residency_warnings(request: SuggestionRequest, identity: IssuerIdentity) ->
     if identity.resident:
         if identity.res_record is not None:
             return []
-        why = "zadané IČO" if identity.lei_record is None else "sídlo podle GLEIF"
+        if identity.lei_record is not None:
+            why = "sídlo podle GLEIF"
+        elif identity.typed_ico is not None:
+            why = "zadané IČO"
+        else:
+            why = "název nalezený v ARES"
         return [
             f"Emitent je rezident ČR ({why}), ale kódy z RES převzít nešlo – důvod je v "
             "poznámkách. Návrh vychází z rezidentských kódů ESA; ověřte ho."

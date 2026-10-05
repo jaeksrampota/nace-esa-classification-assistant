@@ -9,6 +9,7 @@ package touches the network.
 from __future__ import annotations
 
 import copy
+import json
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -655,17 +656,60 @@ RES_NOT_FOUND: dict[str, Any] = {
 }
 
 
+def search_hit(
+    ico: str | None,
+    name: str,
+    *,
+    legal_form: str = "121",
+    town: str = "Praha",
+    dissolved: str | None = None,
+    states: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """One subject of ARES's name search, shaped like the live answer of 5 Oct 2026."""
+    status = states or {"stavZdrojeRes": "AKTIVNI", "stavZdrojeVr": "AKTIVNI"}
+    return {
+        "ico": ico,
+        "obchodniJmeno": name,
+        "pravniForma": legal_form,
+        "sidlo": {"kodStatu": "CZ", "nazevObce": town},
+        "datumZaniku": dissolved,
+        "seznamRegistraci": status,
+    }
+
+
+#: The 400 ARES gives a name with more than 1 000 hits ("Stavby", live 2026-10-05).
+def too_many_body(count: int) -> dict[str, Any]:
+    return {
+        "kod": "CHYBA_VSTUPU",
+        "popis": (
+            f"Zadaný dotaz vrací příliš mnoho výsledků ({count:,}). Povoleno je maximálně "
+            "1 000 výsledků. Upravte parametry vyhledávání.|Chyba vstupu"
+        ).replace(",", " "),
+        "subKod": "VYSTUP_PRILIS_MNOHO_VYSLEDKU",
+    }
+
+
 def ares_client(
     answers: dict[str, dict[str, Any] | int] | None = None,
     *,
     calls: list[str] | None = None,
+    search: dict[str, list[dict[str, Any]] | int] | None = None,
+    searched: list[tuple[str, int, int]] | None = None,
 ) -> httpx.Client:
-    """Client answering the RES endpoint: ``answers`` maps IČO -> body or HTTP status; else 404."""
+    """Client answering the RES endpoint and the name search.
+
+    ``answers`` maps IČO -> body or HTTP status; else 404. ``search`` maps a name (case-
+    insensitive) -> every hit ARES has for it, served page by page, or an HTTP status - one
+    above 1 000 is the "too many results" 400 with that count; a name not listed finds nothing.
+    ``searched`` collects ``(name, pocet, start)`` of each search.
+    """
     answers = answers or {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         if calls is not None:
             calls.append(str(request.url))
+        if request.method == "POST" and request.url.path.endswith("/vyhledat"):
+            return _search_answer(json.loads(request.content), search or {}, searched)
         ico = request.url.path.rsplit("/", 1)[-1]
         answer = answers.get(ico)
         if answer is None:
@@ -675,3 +719,21 @@ def ares_client(
         return httpx.Response(200, json=payload(answer))
 
     return make_client(handler, base_url="https://ares.gov.cz")
+
+
+def _search_answer(
+    body: dict[str, Any],
+    search: dict[str, list[dict[str, Any]] | int],
+    searched: list[tuple[str, int, int]] | None,
+) -> httpx.Response:
+    """One page of the name search, as ARES serves it."""
+    name, limit, start = str(body["obchodniJmeno"]), int(body["pocet"]), int(body["start"])
+    if searched is not None:
+        searched.append((name, limit, start))
+    hits = next((value for key, value in search.items() if key.lower() == name.lower()), [])
+    if isinstance(hits, int):
+        if hits > 1000:
+            return httpx.Response(400, json=too_many_body(hits))
+        return httpx.Response(hits, text="boom")
+    page = [payload(item) for item in hits[start : start + limit]]
+    return httpx.Response(200, json={"pocetCelkem": len(hits), "ekonomickeSubjekty": page})

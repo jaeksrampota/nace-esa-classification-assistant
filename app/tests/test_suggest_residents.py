@@ -248,6 +248,11 @@ class TestResidentWithoutRes:
         (warning,) = _input_warnings(SuggestionRequest(ico="49279866"), typed)
         assert "(zadané IČO)" in warning
 
+    def test_a_name_found_in_ares_is_said_to_be_the_reason(self) -> None:
+        found = IssuerIdentity(name_ico="49279866")
+        (warning,) = _input_warnings(SuggestionRequest(name="ING Bank N.V."), found)
+        assert "(název nalezený v ARES)" in warning
+
 
 def test_a_cz_isin_no_register_could_place_keeps_a_reworded_warning() -> None:
     (warning,) = _input_warnings(SuggestionRequest(isin=CEZ_ISIN), NO_IDENTITY)

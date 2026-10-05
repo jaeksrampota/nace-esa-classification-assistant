@@ -244,6 +244,14 @@ class Settings(BaseSettings):
             "proposed codes. Off: residents get the classifier on the resident ESA block."
         ),
     )
+    ares_name_search: bool = Field(
+        default=True,
+        description=(
+            "When GLEIF has no entity with a typed name, search ARES for a Czech subject and "
+            "take it only when exactly one active subject has that name (core.sources."
+            "czech_names). Off: such a name ends in 'zadejte IČO', as before 5 Oct 2026."
+        ),
+    )
     ares_base_url: str = Field(
         default="https://ares.gov.cz", description="Base URL of the public ARES REST API."
     )

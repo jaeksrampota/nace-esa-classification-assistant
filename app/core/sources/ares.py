@@ -27,6 +27,19 @@ ARES's copy of RES lags ČSÚ by about three weeks (the RES a OR tool found no r
 subjects founded after about 10 Sept, on 2 Oct 2026) and drops dissolved subjects, so a 404 is
 said as exactly that, never as "the subject does not exist".
 
+**The name search** (5 Oct 2026: a Czech name GLEIF cannot match used to end in "zadejte
+IČO"), verified live the same day:
+
+    POST https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat
+    {"obchodniJmeno": "...", "pocet": 10, "start": 0}
+
+``{"pocetCelkem": n, "ekonomickeSubjekty": [...]}`` with ``ico``, ``obchodniJmeno``,
+``pravniForma``, ``sidlo.nazevObce``, ``datumZaniku`` and ``seznamRegistraci`` per subject, in
+ascending IČO order. Whole words in any order, diacritics ignored, no prefixes or typos; more
+than 1 000 hits is refused with HTTP 400 ``VYSTUP_PRILIS_MNOHO_VYSLEDKU`` and the count in the
+text ("Stavby": 2 825). Dissolved subjects are not returned. ~0.1-0.2 s a call. Which subject a
+name means is decided in :mod:`core.sources.czech_names`, never here.
+
 Ported from the adapter PR #5 removed (``cafc974^:app/core/sources/ares.py``): the same
 transport - httpx, throttle, retries with linear backoff, ``None`` vs
 :class:`~core.sources.base.SourceUnavailableError` - cut down to the RES half. Never scrape
@@ -59,6 +72,15 @@ LOGGER = logging.getLogger(__name__)
 #: The RES endpoint, relative to ``ARES_BASE_URL``.
 PATH_RES: Final[str] = "/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty-res/{ico}"
 
+#: The name search, relative to ``ARES_BASE_URL`` (POST, JSON body).
+PATH_SEARCH: Final[str] = "/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat"
+
+#: The largest page the name search serves.
+SEARCH_PAGE_MAX: Final[int] = 200
+
+#: The ``subKod`` of the 400 ARES answers when a name has more than 1 000 hits.
+TOO_MANY_MARKER: Final[str] = "VYSTUP_PRILIS_MNOHO_VYSLEDKU"
+
 #: The subject's page in the ARES web application - the citable form of a RES record.
 RES_PAGE: Final[str] = "https://ares.gov.cz/ekonomicke-subjekty?ico={ico}"
 
@@ -67,6 +89,10 @@ _ICO_RE: Final[re.Pattern[str]] = re.compile(r"[0-9]{8}")
 _NACE_RE: Final[re.Pattern[str]] = re.compile(r"[0-9]{2,6}")
 #: A ČSÚ institutional sector: five digits, or the single ``0`` (Nezjištěno).
 _SECTOR_RE: Final[re.Pattern[str]] = re.compile(r"[0-9]{5}|0")
+#: The hit count in the text of the "too many results" 400: "(2 825)".
+_COUNT_RE: Final[re.Pattern[str]] = re.compile(r"\(([\d\s ]+)\)")
+#: The registrations whose state says whether a search hit is still active.
+_REGISTRATION_STATES: Final[tuple[str, ...]] = ("stavZdrojeRes", "stavZdrojeVr", "stavZdrojeRos")
 
 #: ČSÚ legal forms (ARES codelist ``PravniForma``) an issuer is likely to have, for the fact
 #: sheet. A code missing here is shown bare; nothing decides on these names.
@@ -156,8 +182,51 @@ class ResRecord:
         return (f"RES (ČSÚ, přes ARES{stamp}): " + "; ".join(parts) + " [RES].",)
 
 
+@dataclass(frozen=True, slots=True)
+class AresHit:
+    """One subject of a name search, reduced to what deciding on the name needs.
+
+    Attributes:
+        ico: The subject's IČO; ``None`` for a hit without one of its own (a branch).
+        name: ``obchodniJmeno``.
+        legal_form: ``pravniForma``, the ČSÚ legal-form code.
+        town: ``sidlo.nazevObce``, to tell namesakes apart on the page.
+        active: No ``datumZaniku``, and RES, VR or ROS reports the subject ``AKTIVNI`` (a hit
+            without registration states counts as active, as in the RES a OR tool).
+    """
+
+    ico: str | None
+    name: str | None
+    legal_form: str | None
+    town: str | None
+    active: bool
+
+    def label(self) -> str:
+        """``Komerční banka, a.s. (IČO 45317054, Praha)`` - how a candidate is named in a note."""
+        where = f", {self.town}" if self.town else ""
+        return f"{self.name or '(název neuveden)'} (IČO {self.ico or 'neuvedeno'}{where})"
+
+
+@dataclass(frozen=True, slots=True)
+class NameSearch:
+    """One page of a name search.
+
+    Attributes:
+        query: The name as sent.
+        total: ``pocetCelkem``, every hit ARES has for the name (the count it refused to list
+            when ``too_many``).
+        hits: The page's subjects, in ARES's order.
+        too_many: ARES refused the query: more than 1 000 hits.
+    """
+
+    query: str
+    total: int
+    hits: tuple[AresHit, ...]
+    too_many: bool = False
+
+
 class AresSource:
-    """Read-only client of the RES endpoint of the public ARES REST API.
+    """Read-only client of the RES endpoint and the name search of the public ARES REST API.
 
     Args:
         settings: Base URL, timeout, throttle and retry counts (``ARES_*``), User-Agent
@@ -212,8 +281,8 @@ class AresSource:
                 self._sleep(wait)
         self._last_request_at = self._monotonic()
 
-    def _send(self, path: str) -> httpx.Response:
-        """Send one GET, retrying transient failures with linear backoff.
+    def _send(self, path: str, *, body: Mapping[str, Any] | None = None) -> httpx.Response:
+        """Send one GET (a POST with ``body``), retrying transient failures with linear backoff.
 
         Retried: timeouts, connection errors, 5xx and 429 (the Ministry's rate limit). Not
         retried: other 4xx, which fail the same way however often they are repeated.
@@ -224,7 +293,7 @@ class AresSource:
         for attempt in range(1, attempts + 1):
             self._throttle()
             try:
-                response = client.get(path)
+                response = client.get(path) if body is None else client.post(path, json=body)
             except httpx.TimeoutException as exc:
                 last_error = SourceUnavailableError(f"ARES timed out on {path}: {exc}")
             except httpx.HTTPError as exc:
@@ -307,8 +376,92 @@ class AresSource:
             ),
         )
 
+    def search_by_name(self, name: str, *, limit: int = 10, start: int = 0) -> NameSearch:
+        """One page of ARES's name search for ``name``; nothing found is an empty page.
+
+        More than 1 000 hits comes back as ``too_many`` with the count, not as an error: it is
+        ARES's answer for that name.
+
+        Raises:
+            SourceQueryError: ``name`` is empty; nothing was sent.
+            SourceUnavailableError: ARES could not be reached (network error, 5xx, 429).
+            SourceResponseError: another error status, or a body that is not the search's.
+        """
+        query = " ".join(name.split())
+        if not query:
+            raise SourceQueryError("an empty name; ARES was not asked")
+        body = {
+            "obchodniJmeno": query,
+            "pocet": max(1, min(limit, SEARCH_PAGE_MAX)),
+            "start": max(0, start),
+        }
+        response = self._send(PATH_SEARCH, body=body)
+        if response.status_code == 404:
+            return NameSearch(query=query, total=0, hits=())
+        if response.status_code == 400:
+            refused = _too_many_count(response)
+            if refused is not None:
+                return NameSearch(query=query, total=refused, hits=(), too_many=True)
+        if response.status_code >= 400:
+            raise SourceResponseError(
+                f"ARES returned HTTP {response.status_code} for the name search {query!r}"
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise SourceResponseError(
+                f"ARES returned a non-JSON body for {query!r}: {exc}"
+            ) from exc
+        if not isinstance(payload, Mapping):
+            raise SourceResponseError(f"ARES answered the name search {query!r} without an object")
+        subjects = payload.get("ekonomickeSubjekty")
+        if not isinstance(subjects, Sequence) or isinstance(subjects, (str, bytes)):
+            subjects = ()
+        hits = tuple(_hit(item) for item in subjects if isinstance(item, Mapping))
+        total = payload.get("pocetCelkem")
+        return NameSearch(
+            query=query,
+            total=total if isinstance(total, int) and total >= len(hits) else len(hits),
+            hits=hits,
+        )
+
 
 # -- parsing (module level so it is testable without a client) ---------------------------
+
+
+def _hit(item: Mapping[str, Any]) -> AresHit:
+    """A search subject; an IČO that is not 8 digits counts as none."""
+    ico = _text(item.get("ico"))
+    return AresHit(
+        ico=ico if ico and _ICO_RE.fullmatch(ico) else None,
+        name=_text(item.get("obchodniJmeno")),
+        legal_form=_text(item.get("pravniForma")),
+        town=_text(_mapping(item.get("sidlo")).get("nazevObce")),
+        active=_is_active(item),
+    )
+
+
+def _is_active(item: Mapping[str, Any]) -> bool:
+    """No ``datumZaniku``, and some registration ``AKTIVNI`` (none listed counts as active)."""
+    if _text(item.get("datumZaniku")):
+        return False
+    registrations = _mapping(item.get("seznamRegistraci"))
+    states = [_text(registrations.get(key)) for key in _REGISTRATION_STATES]
+    stated = [state for state in states if state]
+    return not stated or "AKTIVNI" in stated
+
+
+def _too_many_count(response: httpx.Response) -> int | None:
+    """The hit count of ARES's "too many results" 400; ``None`` for any other 400."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, Mapping) or TOO_MANY_MARKER not in str(body.get("subKod") or ""):
+        return None
+    found = _COUNT_RE.search(str(body.get("popis") or ""))
+    digits = re.sub(r"\D", "", found.group(1)) if found else ""
+    return int(digits) if digits else 1001
 
 
 def _mapping(value: object) -> Mapping[str, Any]:
@@ -367,4 +520,13 @@ def _primary_record(payload: Any) -> Mapping[str, Any] | None:
     return usable[0] if usable else None
 
 
-__all__ = ["LEGAL_FORMS_CS", "PATH_RES", "RES_PAGE", "AresSource", "ResRecord"]
+__all__ = [
+    "LEGAL_FORMS_CS",
+    "PATH_RES",
+    "PATH_SEARCH",
+    "RES_PAGE",
+    "AresHit",
+    "AresSource",
+    "NameSearch",
+    "ResRecord",
+]

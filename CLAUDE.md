@@ -8,7 +8,8 @@ Guidance for Claude Code working in this repository.
 
 **Tool 1 only** (since 22 Sept 2026). MO treasury sets up foreign securities issuers in CTS
 and must pick a 2-digit NACE code and an elementary ESA 2010 sector code. Input: ISIN and/or
-issuer name and/or activity description - or a Czech issuer's IČO typed into the name field.
+issuer name and/or activity description - or a Czech issuer's IČO typed into the name field
+(a Czech name GLEIF does not know is searched in ARES, since 5 Oct 2026).
 Output: issuer name, description, suggested NACE + CTS ID, suggested ESA + CTS ID, top 3
 candidates each, with evidence. **A Czech (resident) issuer takes both codes from RES** (since
 2 Oct 2026: MO asked through Reporting, Jakub decided), so MO need not care who is resident.
@@ -21,7 +22,8 @@ codes and is not called; DWS stays out. **The plan, every decision and every ope
 in `docs/ROADMAP.md`: read it after this file and keep both in step.**
 
 Sources, in order: **GLEIF** (`api.gleif.org`) + **OpenFIGI** (`api.openfigi.com`) for an
-issuer given by ISIN; **RES through ARES** (`ares.gov.cz`) for a Czech issuer's codes;
+issuer given by ISIN; **RES through ARES** (`ares.gov.cz`) for a Czech issuer's codes (and
+ARES's name search for a Czech name GLEIF does not know);
 **Wikidata/Wikipedia by that LEI or by the issuer's name**, then the **model's own web search**
 (every lookup since 30 Sept 2026), for activity descriptions.
 Never scrape `apl.czso.cz` or `or.justice.cz` - ARES is the official API, not scraping.
@@ -56,7 +58,8 @@ core/sources      base.py, gleif.py, openfigi.py, identity.py (ISIN -> issuer), 
                   names.py (name matching), ecb.py (ECB lists of financial institutions),
                   firds.py (ESMA FIRDS: ISIN -> LEI when GLEIF has no mapping),
                   llm_web.py (the model's web search for the description),
-                  ares.py (RES through ARES: a Czech issuer's NACE and sector)
+                  ares.py (RES through ARES: a Czech issuer's NACE and sector; the name search),
+                  czech_names.py (a Czech subject by name: one active holder or none)
 core/codebooks    loaders, versioning, consistency; blob.py (private Vercel Blob);
                   res_esa.py (RES sector -> BA0036 resident code, the reviewable table)
 core/classify     candidates.py (pre-filter), hints.py, llm.py, proposal.py, golden.py,
@@ -142,9 +145,9 @@ codebook shows whenever the model is off or declines — typically ESA when the 
 say who owns the issuer (the control axis, Q7): Deutsche Bank by ISIN alone gets the rules' tied
 bank family, and a one-line popis stating the ownership lets the model pick.
 
-Czech (resident) issuers take their codes from RES since PR #26 (2 Oct 2026; not merged or
-deployed when written): on the 15 resident golden cases the proposal with the model off is the
-brief's code in 15 of 15 (the ING branch as the tie it must be).
+Czech (resident) issuers take their codes from RES since PR #26 (2 Oct 2026; merged and
+deployed 5 Oct 2026, `main` `392011a`): on the 15 resident golden cases the proposal with the
+model off is the brief's code in 15 of 15 (the ING branch as the tie it must be).
 
 Figures are **provisional** (no case is `verified_by`-confirmed) and must not be quoted as
 accuracy. Next steps are `docs/ROADMAP.md` §0: a signed-in production lookup confirming the
@@ -299,7 +302,23 @@ database rows and FIRDS answering from Vercel. No Vercel Pro; nothing can be che
     issuer elsewhere (ČEB and NRB credit institutions, EGAP an insurer; RES: 13110).
   * 404 = "RES nemá záznam" (ARES lags ČSÚ ~3 weeks and drops dissolved subjects); an outage
     is a note, never a 404. A Czech fund has no IČO (`RA999999`): resident, no RES.
-  * No ARES name search yet: a Czech name GLEIF cannot match gets "zadejte IČO".
+  * **A Czech name GLEIF does not know** (`czech_names.py`, `ARES_NAME_SEARCH`, 5 Oct 2026,
+    Jakub: "can we fix this?"): when GLEIF answers that no entity has the typed name (not a
+    tie, not an outage), ARES's name search (`POST .../ekonomicke-subjekty/vyhledat`) is
+    asked, and a subject is taken **only when exactly one active subject has the same
+    normalised name over the complete hit set** - the RES a OR tool's rule (0 false accepts
+    in 893 golden names there): legal form and status tag stripped from the key, a typed
+    legal form searched away (the bare name decides), the rest paged (200 a page, up to
+    1 000), `-`/`&`/quotes written the other ways; another legal form than the typed one,
+    or a typed "v likvidaci" the holder lacks, takes nothing. At most 12 searches; a set
+    that cannot be completed takes nothing. A subject taken goes on like a typed IČO (GLEIF
+    by IČO for the LEI, then RES), `name_ico` on the identity, `ARES` in `sources`, and the
+    note "emitent dohledán v ARES podle názvu"; otherwise the namesakes are listed with
+    their IČO for MO to type. Never decided from the words of the name. Live 5 Oct 2026:
+    "Komerční banka" (GLEIF's matcher does not know "a.s."), "Fio banka" and "Národní rozvojová
+    banka" are found through ARES, then GLEIF by IČO and RES; "HARMONIE PLUS, s.r.o." (two
+    holders) and "EG.D, a.s." (the one holder is an s.r.o.) take nothing; "ING Bank N.V." stays
+    GLEIF's Dutch entity (GLEIF matched it, so ARES is not asked).
     `tests/conftest.py` sets `ARES_ENABLED=false`; the golden residents replay a recording.
 - **Candidate pre-filter** (`candidates.py`): narrows to ~12 per codebook, each already carrying
   its CTS ID, so a returned code cannot be one CTS does not know. It optimises **recall**: a code
