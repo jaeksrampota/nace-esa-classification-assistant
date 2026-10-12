@@ -50,7 +50,11 @@
 <style>
   /* The look of the RB team gateway (anorfidien/finance_rb_cz, after the Raiffeisenbank brand
      manual 2023): one yellow, a deliberately dim warm light theme, an Off Black dark theme,
-     system fonts only, monospace for codes and labels. Re-implemented here, nothing copied. */
+     system fonts only, monospace for labels. Re-implemented here, nothing copied.
+     Codes and identifiers are the exception (12 Oct 2026, MO): the monospace fonts Windows has
+     mark the zero - Cascadia Mono with a dot, Consolas with a slash - and at the CTS ID's size a
+     dotted 0 reads as an 8. The values MO reads and copies into CTS are therefore set in the
+     sans face, whose zero is a plain oval, with tabular figures so the digits still line up. */
   :root {
     color-scheme: light;
     --bg: #e3ddd1;
@@ -226,7 +230,10 @@
   /* ---- issuer ---- */
   .result { margin-top: 1.5rem; }
   .issuer h2 { margin: 0 0 0.2rem; font-size: 1.4rem; font-weight: 800; letter-spacing: -0.015em; }
-  .issuer .meta { color: var(--muted); font: 0.76rem var(--mono); letter-spacing: 0.02em; }
+  .issuer .meta {
+    color: var(--muted); font: 0.76rem var(--sans); font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
   .issuer ul.identity {
     margin: 0.8rem 0 0; padding-left: 1.1rem; color: var(--muted); font-size: 0.84rem; max-width: 90ch;
   }
@@ -265,11 +272,14 @@
     letter-spacing: 0.12em; text-transform: uppercase;
   }
   .code-row { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; }
-  .code { font: 700 1.45rem/1.15 var(--mono); letter-spacing: -0.01em; }
+  .code {
+    font: 700 1.45rem/1.15 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
   .alt .code { font-size: 1.05rem; }
   .ctsid {
     padding: 0.18rem 0.45rem; border-radius: 5px; background: var(--hairline); color: var(--fg);
-    font: 600 0.72rem/1.2 var(--mono); letter-spacing: 0.02em; white-space: nowrap;
+    font: 600 0.72rem/1.2 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: 0.02em;
+    white-space: nowrap;
   }
   .conf {
     display: inline-flex; align-items: center; gap: 0.35rem; margin-left: auto;
